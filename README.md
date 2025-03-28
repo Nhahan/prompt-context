@@ -1,28 +1,15 @@
-# Memory Context Protocol (MCP) for AI Agents
+# Prompt Context MCP Server
 
-`prompt-context` is a TypeScript library that helps AI agents efficiently remember and utilize previous conversation context. This protocol tracks conversation history for each file or context, periodically summarizes it, and saves the summaries to enhance the AI agent's contextual understanding.
+An MCP protocol that helps AI agents efficiently remember and utilize previous conversation context. This protocol tracks conversation history for each file or context, periodically summarizes it, and saves the summaries to enhance the AI agent's contextual understanding.
 
 *Read this in [Korean](README_KOR.md)*
 
 ## Key Features
 
 - **Intelligent Context Memory**: AI agents automatically remember conversation history and recall it when needed
-- **Importance-Based Context Retention**: Automatically identifies and preserves important information even before reaching message thresholds
+- **Importance-Based Context Retention**: Automatically identifies and preserves important information
 - **Automatic Summarization**: Generates context summaries when message count reaches thresholds
 - **Context Relationship Tracking**: Connects related conversations using vector similarity and graph relationships to maintain knowledge context
-
-## Installation
-
-> **Note:** This package is currently in beta. You can install the beta version using the `@beta` tag.
-
-```bash
-# Global installation
-npm install -g prompt-context@beta
-```
-
-## MCP Server Usage
-
-This library is designed to be used as an MCP (Model Context Protocol) server with AI tools like Claude, Cursor, etc. The AI agent will autonomously manage context through the MCP when needed.
 
 ### Using with Claude Desktop
 
@@ -41,45 +28,6 @@ Add this to your `claude_desktop_config.json`:
   }
 }
 ```
-
-### Using with Cursor Editor
-
-To use the Memory Context Protocol with Cursor:
-
-1. Install the package globally:
-```bash
-npm install -g prompt-context@beta
-```
-
-2. Create a `.cursor/mcps.json` file in your home directory:
-```bash
-mkdir -p ~/.cursor && touch ~/.cursor/mcps.json
-```
-
-3. Add the following configuration to the `.cursor/mcps.json` file:
-```json
-{
-  "prompt-context": {
-    "command": "npx",
-    "args": [
-      "prompt-context-mcp"
-    ]
-  }
-}
-```
-
-4. Restart Cursor to apply the changes.
-
-5. To enable the MCP for a specific project, create a `.cursor-settings.json` file in your project root with:
-```json
-{
-  "mcps": [
-    "prompt-context"
-  ]
-}
-```
-
-This will allow Cursor to maintain context across your coding sessions, with automatic summarization based on your configuration.
 
 ### Using with Docker
 
@@ -135,7 +83,7 @@ Example of using similarity search:
 
 ```javascript
 // Find contexts similar to a query
-const response = await fetch('http://localhost:3000/similar?text=machine learning&limit=5');
+const response = await fetch('http://localhost:6789/similar?text=machine learning&limit=5');
 const { similarContexts } = await response.json();
 ```
 
@@ -261,10 +209,6 @@ Patterns defined in the `.gitignore` file are automatically loaded and used as i
 - *.min.*
 - *.map
 
-## Contributing
-
-Interested in contributing to the Memory Context Protocol? Please see our [contributing guidelines](CONTRIBUTING.md) for details.
-
 ## Using MCP in Team Environment
 
 When using MCP in a team environment, it's important to consider how context data is managed:
@@ -281,7 +225,7 @@ By default, MCP saves all context data in the `.prompt-context` directory within
 Add the following to your project's `.gitignore` file:
 
 ```
-# MCP context files
+# MCP
 .prompt-context/
 ```
 
