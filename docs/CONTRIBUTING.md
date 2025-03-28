@@ -38,12 +38,12 @@ By participating in this project, you agree to abide by our code of conduct. Ple
 3. **Test Your Changes**: Ensure your changes don't break existing functionality.
    ```bash
    npm run build
-   npm run lint
+   npm test
    ```
 
-4. **Commit Your Changes**: Use clear and descriptive commit messages.
+4. **Commit Your Changes**: Use clear and descriptive commit messages following the commit guidelines below.
    ```bash
-   git commit -m "Add feature: your feature description"
+   git commit -m "feat: add vector similarity search"
    ```
 
 5. **Push to Your Fork**: Push your changes to your fork on GitHub.
@@ -52,6 +52,59 @@ By participating in this project, you agree to abide by our code of conduct. Ple
    ```
 
 6. **Submit a Pull Request**: Create a pull request from your branch to the main repository.
+
+## Commit Message Guidelines
+
+We follow the Conventional Commits specification for commit messages. This leads to more readable messages and automated versioning and changelog generation.
+
+### Commit Message Format
+
+Each commit message consists of a **header**, an optional **body**, and an optional **footer**:
+
+```
+<type>(<scope>): <subject>
+<BLANK LINE>
+<body>
+<BLANK LINE>
+<footer>
+```
+
+The **header** is mandatory and must follow this format:
+
+- **type**: What kind of change is being made (e.g., feat, fix, docs)
+- **scope** (optional): What part of the codebase is affected (e.g., mcp, repository, cli)
+- **subject**: Short description of the change
+
+### Types
+
+- **feat**: A new feature
+- **fix**: A bug fix
+- **docs**: Documentation changes
+- **style**: Changes that do not affect the meaning of the code (formatting, etc)
+- **refactor**: Code changes that neither fix a bug nor add a feature
+- **perf**: Code changes that improve performance
+- **test**: Adding or correcting tests
+- **chore**: Changes to the build process or auxiliary tools
+- **ci**: Changes to CI configuration files and scripts
+- **build**: Changes to the build system or external dependencies
+
+### Examples
+
+```
+feat(vector-db): add vector similarity search
+```
+
+```
+fix(repository): resolve issue with file path handling
+```
+
+```
+docs: update README with new CLI commands
+```
+
+```
+refactor: update jest configuration and improve repository structure
+```
 
 ## Pull Request Guidelines
 
