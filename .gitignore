@@ -33,6 +33,5 @@ coverage/
 tmp/
 temp/
 
-# Lock files
-# package-lock.json
-# yarn.lock 
+# MCP
+.prompt-context/

@@ -14,4 +14,4 @@ alwaysApply: true
 
 - Do not deploy until instructed to do so.
 
-- Do not commit changes to these rules arbitrarily. Please provide commit messages in English.
+- Do not commit arbitrarily.
