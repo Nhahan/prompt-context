@@ -13,3 +13,5 @@ alwaysApply: true
 - When modifying the README, always create an identical Korean version (`README_KOR.md`) separately.
 
 - Do not deploy until instructed to do so.
+
+- Do not commit changes to these rules arbitrarily. Please provide commit messages in English.
