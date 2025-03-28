@@ -1,11 +1,11 @@
-import * as fs from 'fs-extra';
-import * as path from 'path';
+import fs from 'fs-extra';
+import path from 'path';
 import * as git from 'isomorphic-git';
-import { ContextSummary, MCPConfig, Repository } from './types';
+import { ContextSummary, MCPConfig, Repository, HierarchicalSummary, MetaSummary } from './types';
 import IgnoreClass from 'ignore';
 
 /**
- * 컨텍스트 저장소 구현
+ * Context repository implementation
  */
 export class FileSystemRepository implements Repository {
   private config: MCPConfig;
@@ -24,8 +24,8 @@ export class FileSystemRepository implements Repository {
   ];
 
   /**
-   * 저장소 생성자
-   * @param config MCP 설정 객체
+   * Repository constructor
+   * @param config MCP configuration object
    */
   constructor(config: MCPConfig) {
     this.config = config;
@@ -35,15 +35,15 @@ export class FileSystemRepository implements Repository {
       this.ignoreInstance.add(config.ignorePatterns);
     }
     
-    // .gitignore 파일이 있으면 읽어서 무시 패턴 추가
+    // Load patterns from .gitignore if it exists
     this.loadGitIgnorePatterns();
     
-    // 컨텍스트 디렉토리 생성
+    // Create context directory
     this.ensureContextDirectory();
   }
 
   /**
-   * .gitignore 파일에서 무시 패턴 로드
+   * Load ignore patterns from .gitignore file
    */
   private loadGitIgnorePatterns(): void {
     try {
@@ -62,17 +62,23 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * 컨텍스트 디렉토리 존재 확인 및 생성
+   * Ensure context directory exists
    */
   private ensureContextDirectory(): void {
     const contextDir = path.resolve(process.cwd(), this.config.contextDir);
     fs.ensureDirSync(contextDir);
+    
+    // Create subdirectories for hierarchical summaries and meta-summaries
+    if (this.config.hierarchicalContext) {
+      fs.ensureDirSync(path.join(contextDir, 'hierarchical'));
+      fs.ensureDirSync(path.join(contextDir, 'meta'));
+    }
   }
 
   /**
-   * 컨텍스트 ID에 대한 요약 파일 경로 반환
-   * @param contextId 컨텍스트 ID
-   * @returns 요약 파일 경로
+   * Get the file path for a context summary
+   * @param contextId Context identifier
+   * @returns Path to the summary file
    */
   private getSummaryPath(contextId: string): string {
     const sanitizedId = contextId.replace(/[\/\\:*?"<>|]/g, '_');
@@ -84,8 +90,38 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * 요약 저장
-   * @param summary 저장할 요약
+   * Get the file path for a hierarchical summary
+   * @param contextId Context identifier
+   * @returns Path to the hierarchical summary file
+   */
+  private getHierarchicalSummaryPath(contextId: string): string {
+    const sanitizedId = contextId.replace(/[\/\\:*?"<>|]/g, '_');
+    return path.join(
+      process.cwd(),
+      this.config.contextDir,
+      'hierarchical',
+      `${sanitizedId}.hierarchy.json`
+    );
+  }
+
+  /**
+   * Get the file path for a meta-summary
+   * @param id Meta-summary identifier
+   * @returns Path to the meta-summary file
+   */
+  private getMetaSummaryPath(id: string): string {
+    const sanitizedId = id.replace(/[\/\\:*?"<>|]/g, '_');
+    return path.join(
+      process.cwd(),
+      this.config.contextDir,
+      'meta',
+      `${sanitizedId}.meta.json`
+    );
+  }
+
+  /**
+   * Save a context summary
+   * @param summary Summary to save
    */
   async saveSummary(summary: ContextSummary): Promise<void> {
     const summaryPath = this.getSummaryPath(summary.contextId);
@@ -97,9 +133,9 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * 요약 로드
-   * @param contextId 컨텍스트 ID
-   * @returns 저장된 요약 또는 undefined (존재하지 않는 경우)
+   * Load a context summary
+   * @param contextId Context identifier
+   * @returns Stored summary or undefined if it doesn't exist
    */
   async loadSummary(contextId: string): Promise<ContextSummary | undefined> {
     const summaryPath = this.getSummaryPath(contextId);
@@ -116,27 +152,176 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * Git에 파일 커밋
-   * @param filePath 커밋할 파일 경로
-   * @param message 커밋 메시지
+   * Save a hierarchical summary
+   * @param summary Hierarchical summary to save
+   */
+  async saveHierarchicalSummary(summary: HierarchicalSummary): Promise<void> {
+    if (!this.config.hierarchicalContext) return;
+    
+    const summaryPath = this.getHierarchicalSummaryPath(summary.contextId);
+    await fs.writeJson(summaryPath, summary, { spaces: 2 });
+    
+    if (this.config.useGit) {
+      await this.commitFile(summaryPath, `Update hierarchical summary for ${summary.contextId}`);
+    }
+  }
+
+  /**
+   * Load a hierarchical summary
+   * @param contextId Context identifier
+   * @returns Stored hierarchical summary or undefined
+   */
+  async loadHierarchicalSummary(contextId: string): Promise<HierarchicalSummary | undefined> {
+    if (!this.config.hierarchicalContext) return undefined;
+    
+    const summaryPath = this.getHierarchicalSummaryPath(contextId);
+    
+    try {
+      if (await fs.pathExists(summaryPath)) {
+        return await fs.readJson(summaryPath);
+      }
+    } catch (error) {
+      console.error(`Error loading hierarchical summary for ${contextId}:`, error);
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Save a meta-summary
+   * @param summary Meta-summary to save
+   */
+  async saveMetaSummary(summary: MetaSummary): Promise<void> {
+    if (!this.config.hierarchicalContext) return;
+    
+    const summaryPath = this.getMetaSummaryPath(summary.id);
+    await fs.writeJson(summaryPath, summary, { spaces: 2 });
+    
+    if (this.config.useGit) {
+      await this.commitFile(summaryPath, `Update meta-summary ${summary.id}`);
+    }
+  }
+
+  /**
+   * Load a meta-summary
+   * @param id Meta-summary identifier
+   * @returns Stored meta-summary or undefined
+   */
+  async loadMetaSummary(id: string): Promise<MetaSummary | undefined> {
+    if (!this.config.hierarchicalContext) return undefined;
+    
+    const summaryPath = this.getMetaSummaryPath(id);
+    
+    try {
+      if (await fs.pathExists(summaryPath)) {
+        return await fs.readJson(summaryPath);
+      }
+    } catch (error) {
+      console.error(`Error loading meta-summary ${id}:`, error);
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Get all related contexts
+   * @param contextId Context identifier
+   * @returns Array of related context IDs
+   */
+  async getRelatedContexts(contextId: string): Promise<string[]> {
+    const summary = await this.loadSummary(contextId);
+    if (!summary || !summary.relatedContexts) {
+      return [];
+    }
+    
+    return summary.relatedContexts;
+  }
+
+  /**
+   * Get all available context summaries
+   * @returns Array of context IDs
+   */
+  async getAllContextIds(): Promise<string[]> {
+    const contextDir = path.join(process.cwd(), this.config.contextDir);
+    const files = await fs.readdir(contextDir);
+    
+    return files
+      .filter(file => file.endsWith('.summary.json'))
+      .map(file => file.replace(/\.summary\.json$/, ''));
+  }
+
+  /**
+   * Get all available hierarchical summaries
+   * @returns Array of context IDs that have hierarchical summaries
+   */
+  async getAllHierarchicalContextIds(): Promise<string[]> {
+    if (!this.config.hierarchicalContext) return [];
+    
+    const hierarchicalDir = path.join(process.cwd(), this.config.contextDir, 'hierarchical');
+    
+    try {
+      if (!await fs.pathExists(hierarchicalDir)) {
+        return [];
+      }
+      
+      const files = await fs.readdir(hierarchicalDir);
+      
+      return files
+        .filter(file => file.endsWith('.hierarchy.json'))
+        .map(file => file.replace(/\.hierarchy\.json$/, ''));
+    } catch (error) {
+      console.error('Error getting hierarchical contexts:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all available meta-summaries
+   * @returns Array of meta-summary IDs
+   */
+  async getAllMetaSummaryIds(): Promise<string[]> {
+    if (!this.config.hierarchicalContext) return [];
+    
+    const metaDir = path.join(process.cwd(), this.config.contextDir, 'meta');
+    
+    try {
+      if (!await fs.pathExists(metaDir)) {
+        return [];
+      }
+      
+      const files = await fs.readdir(metaDir);
+      
+      return files
+        .filter(file => file.endsWith('.meta.json'))
+        .map(file => file.replace(/\.meta\.json$/, ''));
+    } catch (error) {
+      console.error('Error getting meta-summary IDs:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Commit a file to Git
+   * @param filePath Path to the file to commit
+   * @param message Commit message
    */
   private async commitFile(filePath: string, message: string): Promise<void> {
     const dir = process.cwd();
     const relativePath = path.relative(dir, filePath);
     
     try {
-      // Git 저장소 확인
+      // Check if Git repository exists
       const isRepo = await this.isGitRepository();
       
-      // Git 저장소가 아니면 초기화
+      // Initialize if not a Git repository
       if (!isRepo) {
         await git.init({ fs, dir });
       }
       
-      // 파일 스테이징
+      // Stage the file
       await git.add({ fs, dir, filepath: relativePath });
       
-      // 커밋
+      // Commit
       await git.commit({
         fs,
         dir,
@@ -152,8 +337,8 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * Git 저장소 여부 확인
-   * @returns 저장소 여부
+   * Check if current directory is a Git repository
+   * @returns Whether it's a Git repository
    */
   private async isGitRepository(): Promise<boolean> {
     try {
@@ -165,8 +350,8 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * Git 변경사항 커밋
-   * @param message 커밋 메시지
+   * Commit all changes in the context directory
+   * @param message Commit message
    */
   async commit(message: string): Promise<void> {
     if (!this.config.useGit) return;
@@ -175,22 +360,22 @@ export class FileSystemRepository implements Repository {
     const contextDir = path.join(dir, this.config.contextDir);
     
     try {
-      // Git 저장소 확인
+      // Check if Git repository exists
       const isRepo = await this.isGitRepository();
       
-      // Git 저장소가 아니면 초기화
+      // Initialize if not a Git repository
       if (!isRepo) {
         await git.init({ fs, dir });
       }
       
-      // 컨텍스트 디렉토리의 모든 변경사항 스테이징
-      const files = await fs.readdir(contextDir);
+      // Stage all changes in the context directory
+      const files = await this.getAllFilesRecursively(contextDir);
       for (const file of files) {
-        const filePath = path.relative(dir, path.join(contextDir, file));
+        const filePath = path.relative(dir, file);
         await git.add({ fs, dir, filepath: filePath });
       }
       
-      // 커밋
+      // Commit
       await git.commit({
         fs,
         dir,
@@ -206,12 +391,38 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * 파일이 무시 패턴에 해당하는지 확인
-   * @param filePath 검사할 파일 경로
-   * @returns 무시 여부
+   * Get all files recursively in a directory
+   * @param directory Directory to scan
+   * @returns Array of file paths
+   */
+  private async getAllFilesRecursively(directory: string): Promise<string[]> {
+    const files: string[] = [];
+    
+    async function scan(dir: string) {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        
+        if (entry.isDirectory()) {
+          await scan(fullPath);
+        } else {
+          files.push(fullPath);
+        }
+      }
+    }
+    
+    await scan(directory);
+    return files;
+  }
+
+  /**
+   * Check if a file should be ignored based on patterns
+   * @param filePath Path to check
+   * @returns Whether the file should be ignored
    */
   shouldIgnore(filePath: string): boolean {
-    // 상대 경로로 변환
+    // Convert to relative path if absolute
     const relativePath = path.isAbsolute(filePath)
       ? path.relative(process.cwd(), filePath)
       : filePath;

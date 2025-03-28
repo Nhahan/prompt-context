@@ -3,7 +3,7 @@
 import { MemoryContextProtocol } from './mcp';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { MCPConfig, Message } from './types';
+import { MCPConfig } from './types';
 
 // Default configuration
 const DEFAULT_CONFIG: MCPConfig = {
@@ -12,11 +12,15 @@ const DEFAULT_CONFIG: MCPConfig = {
   contextDir: '.prompt-context',
   useGit: true,
   ignorePatterns: [],
-  autoSummarize: true
+  autoSummarize: true,
+  hierarchicalContext: true,
+  metaSummaryThreshold: 5,
+  maxHierarchyDepth: 3,
+  useVectorDb: false, // Disable by default for CLI
+  useGraphDb: false, // Disable by default for CLI
+  similarityThreshold: 0.6,
+  autoCleanupContexts: false // Disable by default for CLI
 };
-
-// MCP instance
-let mcp: MemoryContextProtocol;
 
 /**
  * Get configuration file path
@@ -50,14 +54,6 @@ function saveConfig(config: MCPConfig): void {
 }
 
 /**
- * Initialize MCP
- */
-function initMCP(config?: MCPConfig): MemoryContextProtocol {
-  const mcpConfig = config || loadConfig();
-  return new MemoryContextProtocol(mcpConfig);
-}
-
-/**
  * Process CLI commands
  */
 async function run() {
@@ -73,16 +69,6 @@ async function run() {
     case 'config':
       // Manage configuration
       await handleConfig(args.slice(1));
-      break;
-    
-    case 'add':
-      // Add message
-      await handleAddMessage(args.slice(1));
-      break;
-    
-    case 'summary':
-      // Generate summary
-      await handleSummary(args.slice(1));
       break;
     
     case 'help':
@@ -103,17 +89,15 @@ Usage:
   npx prompt-context <command> [options]
 
 Commands:
-  init                           Initialize MCP in current directory
-  config [key] [value]           View or change configuration
-  add <contextId> <role> <content>  Add message to context
-  summary [contextId]            Generate summary (all contexts if ID omitted)
-  help                           Show this help message
+  init                     Initialize MCP in current directory
+  config [key] [value]     View or change configuration
+  help                     Show this help message
 
 Examples:
   npx prompt-context init
+  npx prompt-context config                     # View all settings
   npx prompt-context config messageLimitThreshold 5
-  npx prompt-context add file.js user "Please optimize this code"
-  npx prompt-context summary file.js
+  npx prompt-context config hierarchicalContext true
   `);
 }
 
@@ -130,8 +114,18 @@ async function handleInit() {
   const contextDir = path.join(process.cwd(), DEFAULT_CONFIG.contextDir);
   await fs.ensureDir(contextDir);
   
+  // Create hierarchical directories if enabled
+  if (DEFAULT_CONFIG.hierarchicalContext) {
+    await fs.ensureDir(path.join(contextDir, 'hierarchical'));
+    await fs.ensureDir(path.join(contextDir, 'meta'));
+  }
+  
   console.log(`✓ MCP initialized. Configuration file: ${getConfigPath()}`);
   console.log(`✓ Context directory: ${contextDir}`);
+  
+  if (DEFAULT_CONFIG.hierarchicalContext) {
+    console.log('✓ Hierarchical context management is enabled');
+  }
 }
 
 /**
@@ -171,9 +165,18 @@ async function handleConfig(args: string[]) {
     try {
       if (key === 'ignorePatterns') {
         typedValue = JSON.parse(value);
-      } else if (key === 'useGit' || key === 'autoSummarize') {
+      } else if (
+        key === 'useGit' || 
+        key === 'autoSummarize' || 
+        key === 'hierarchicalContext'
+      ) {
         typedValue = value === 'true';
-      } else if (key === 'messageLimitThreshold' || key === 'tokenLimitPercentage') {
+      } else if (
+        key === 'messageLimitThreshold' || 
+        key === 'tokenLimitPercentage' ||
+        key === 'metaSummaryThreshold' ||
+        key === 'maxHierarchyDepth'
+      ) {
         typedValue = parseInt(value, 10);
       } else {
         typedValue = value;
@@ -186,107 +189,22 @@ async function handleConfig(args: string[]) {
       
       saveConfig(updatedConfig);
       console.log(`✓ Configuration updated: ${key} = ${JSON.stringify(typedValue)}`);
+      
+      // Special handling for enabling hierarchical context
+      if (key === 'hierarchicalContext' && typedValue === true) {
+        const contextDir = path.join(process.cwd(), config.contextDir);
+        await fs.ensureDir(path.join(contextDir, 'hierarchical'));
+        await fs.ensureDir(path.join(contextDir, 'meta'));
+        console.log('✓ Created directories for hierarchical context management');
+      }
     } catch (error) {
       console.error(`Error: Problem parsing value:`, error);
     }
   }
 }
 
-/**
- * Handle add message command
- */
-async function handleAddMessage(args: string[]) {
-  if (args.length < 3) {
-    console.error('Error: contextId, role, and content are required.');
-    console.log('Usage: npx prompt-context add <contextId> <role> <content>');
-    return;
-  }
-  
-  const [contextId, role, ...contentParts] = args;
-  const content = contentParts.join(' ');
-  
-  if (role !== 'user' && role !== 'assistant') {
-    console.error('Error: Role must be "user" or "assistant".');
-    return;
-  }
-  
-  // Initialize MCP
-  mcp = initMCP();
-  
-  // Create message object
-  const message: Message = {
-    role: role as 'user' | 'assistant',
-    content,
-    timestamp: Date.now()
-  };
-  
-  try {
-    // Add message
-    await mcp.addMessage(contextId, message);
-    console.log(`✓ Message added to context '${contextId}'.`);
-    
-    // Check if auto-summarize is enabled
-    const config = loadConfig();
-    if (config.autoSummarize) {
-      console.log('(Auto-summarize is enabled and will trigger when thresholds are reached)');
-    }
-  } catch (error) {
-    console.error('Error adding message:', error);
-  }
-}
-
-/**
- * Handle summary command
- */
-async function handleSummary(args: string[]) {
-  // Initialize MCP
-  mcp = initMCP();
-  
-  const contextId = args[0];
-  
-  try {
-    if (contextId) {
-      // Summarize specific context
-      console.log(`Generating summary for context '${contextId}'...`);
-      const result = await mcp.summarizeContext(contextId);
-      
-      if (result) {
-        console.log(`✓ Summary generated for context '${contextId}'.`);
-        
-        // Display summary
-        const summary = await mcp.loadSummary(contextId);
-        if (summary) {
-          console.log('\nSummary:');
-          console.log('-------------------------------------');
-          console.log(`Last Updated: ${new Date(summary.lastUpdated).toLocaleString()}`);
-          console.log(`Message Count: ${summary.messageCount}`);
-          console.log(`Version: ${summary.version}`);
-          console.log('\nSummary Text:');
-          console.log(summary.summary);
-          
-          if (summary.codeBlocks.length > 0) {
-            console.log('\nCode Blocks:');
-            summary.codeBlocks.forEach((block, index) => {
-              console.log(`\n-- Code Block #${index + 1} --`);
-              console.log(`Language: ${block.language || 'Not specified'}`);
-              console.log(`Code:\n${block.code}`);
-            });
-          }
-          console.log('-------------------------------------');
-        }
-      } else {
-        console.log(`✗ Could not generate summary for context '${contextId}'. There may not be enough messages.`);
-      }
-    } else {
-      // Summarize all contexts
-      console.log('Generating summaries for all contexts...');
-      const count = await mcp.summarizeAllContexts();
-      console.log(`✓ Generated ${count} context summaries.`);
-    }
-  } catch (error) {
-    console.error('Error generating summary:', error);
-  }
-}
-
 // Run CLI
-run().catch(console.error); 
+run().catch(error => {
+  console.error('Unhandled error:', error);
+  process.exit(1);
+}); 

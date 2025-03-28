@@ -1,0 +1,15 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# custom rules
+
+- Remove unnecessary imports.
+
+- The basic README.md and comments should be written in English.
+
+- When modifying the README, always create an identical Korean version (`README_KOR.md`) separately.
+
+- Do not deploy until instructed to do so.

@@ -1,133 +1,394 @@
 /**
- * MCP 구성 옵션
+ * MCP configuration options
  */
 export interface MCPConfig {
-  /** 요약을 트리거할 메시지 수 임계값 */
+  /** Message count threshold to trigger summarization */
   messageLimitThreshold: number;
-  /** 요약을 트리거할 토큰 수 임계값 (모델 한계의 백분율) */
+  /** Token count threshold to trigger summarization (percentage of model limit) */
   tokenLimitPercentage: number;
-  /** 컨텍스트 저장 디렉토리 */
+  /** Directory to store context data */
   contextDir: string;
-  /** Git 저장소 사용 여부 */
+  /** Whether to use Git repository integration */
   useGit: boolean;
-  /** 무시할 파일 및 디렉토리 패턴 */
+  /** Patterns for files and directories to ignore */
   ignorePatterns: string[];
-  /** 자동 요약 활성화 여부 */
+  /** Whether to enable automatic summarization */
   autoSummarize: boolean;
+  /** Enable hierarchical context management */
+  hierarchicalContext: boolean;
+  /** Number of contexts before creating a meta-summary */
+  metaSummaryThreshold: number;
+  /** Maximum hierarchical depth for meta-summaries */
+  maxHierarchyDepth: number;
+  /** Whether to use vector database for similarity search */
+  useVectorDb: boolean;
+  /** Whether to use graph database for context relationships */
+  useGraphDb: boolean;
+  /** Similarity threshold for automatic relationship detection */
+  similarityThreshold: number;
+  /** Whether to automatically clean up irrelevant contexts */
+  autoCleanupContexts: boolean;
 }
 
 /**
- * 대화 메시지 구조
+ * Context importance level
+ */
+export enum ContextImportance {
+  LOW = 0.25,
+  MEDIUM = 0.5,
+  HIGH = 0.75,
+  CRITICAL = 1.0
+}
+
+/**
+ * Relationship types between contexts
+ */
+export enum ContextRelationshipType {
+  SIMILAR = 'similar',
+  CONTINUES = 'continues',
+  REFERENCES = 'references',
+  PARENT = 'parent',
+  CHILD = 'child'
+}
+
+/**
+ * Conversation message structure
  */
 export interface Message {
-  /** 메시지 역할 (사용자 또는 어시스턴트) */
+  /** Message role (user or assistant) */
   role: 'user' | 'assistant';
-  /** 메시지 내용 */
+  /** Message content */
   content: string;
-  /** 메시지 생성 타임스탬프 */
+  /** Message creation timestamp */
   timestamp: number;
+  /** Message importance level (affects retention during summarization) */
+  importance?: ContextImportance;
+  /** Tags for message categorization */
+  tags?: string[];
 }
 
 /**
- * 컨텍스트 요약 객체
+ * Context summary object
  */
 export interface ContextSummary {
-  /** 컨텍스트 ID (일반적으로 파일 경로) */
+  /** Context ID (typically a file path) */
   contextId: string;
-  /** 요약 생성 타임스탬프 */
+  /** Summary generation timestamp */
   lastUpdated: number;
-  /** 요약 내용 */
+  /** Summary content */
   summary: string;
-  /** 컨텍스트에 포함된 코드 블록 */
+  /** Code blocks in the context */
   codeBlocks: CodeBlock[];
-  /** 요약에 포함된 메시지 수 */
+  /** Number of messages included in the summary */
   messageCount: number;
-  /** 요약 버전 */
+  /** Summary version */
   version: number;
+  /** Key insights extracted from conversation */
+  keyInsights?: string[];
+  /** Importance score for this context */
+  importanceScore?: number;
+  /** Related context IDs */
+  relatedContexts?: string[];
 }
 
 /**
- * 코드 블록 구조
+ * Hierarchical context summary
+ */
+export interface HierarchicalSummary extends ContextSummary {
+  /** Parent context ID if this is part of a hierarchical structure */
+  parentContextId?: string;
+  /** Child context IDs */
+  childContextIds?: string[];
+  /** Hierarchy level (0 is top level) */
+  hierarchyLevel: number;
+}
+
+/**
+ * Meta-summary for project-wide context
+ */
+export interface MetaSummary {
+  /** Unique ID for the meta-summary */
+  id: string;
+  /** Timestamp when meta-summary was created */
+  createdAt: number;
+  /** Last update timestamp */
+  updatedAt: number;
+  /** High-level project summary */
+  summary: string;
+  /** List of key context IDs included in this meta-summary */
+  contextIds: string[];
+  /** Important code blocks across contexts */
+  sharedCodeBlocks: CodeBlock[];
+  /** Hierarchical level */
+  hierarchyLevel: number;
+}
+
+/**
+ * Context relationship
+ */
+export interface ContextRelationship {
+  /** Source context ID */
+  sourceId: string;
+  /** Target context ID */
+  targetId: string;
+  /** Relationship type */
+  type: ContextRelationshipType;
+  /** Relationship strength (0-1) */
+  strength: number;
+  /** When the relationship was created */
+  createdAt: number;
+  /** Additional metadata */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Context with vector embedding
+ */
+export interface VectorContext {
+  /** Context ID */
+  contextId: string;
+  /** Vector embedding */
+  embedding: number[];
+  /** Last updated timestamp */
+  updatedAt: number;
+}
+
+/**
+ * Similar context result
+ */
+export interface SimilarContext {
+  /** Context ID */
+  id: string;
+  /** Similarity score (0-1) */
+  score: number;
+}
+
+/**
+ * Code block structure
  */
 export interface CodeBlock {
-  /** 코드 블록 언어 */
+  /** Code block language */
   language?: string;
-  /** 코드 내용 */
+  /** Code content */
   code: string;
-  /** 코드 블록의 중요도 (0-1 사이의 값, 높을수록 중요) */
+  /** Code block importance (value between 0-1, higher means more important) */
   importance?: number;
+  /** Source context ID */
+  sourceContextId?: string;
+  /** Original file path if known */
+  filePath?: string;
+  /** Description of what this code does */
+  description?: string;
 }
 
 /**
- * 컨텍스트 데이터
+ * Context data
  */
 export interface ContextData {
-  /** 컨텍스트 ID */
+  /** Context ID */
   contextId: string;
-  /** 메시지 기록 */
+  /** Message history */
   messages: Message[];
-  /** 현재 토큰 수 */
+  /** Current token count */
   tokenCount: number;
-  /** 마지막 요약 이후 메시지 수 */
+  /** Message count since last summary */
   messagesSinceLastSummary: number;
-  /** 요약 여부 */
+  /** Whether a summary exists */
   hasSummary: boolean;
-  /** 마지막 요약 시간 */
+  /** Last summarization time */
   lastSummarizedAt?: number;
+  /** Overall context importance score */
+  importanceScore?: number;
+  /** Related context IDs */
+  relatedContexts?: string[];
+  /** Parent context ID if this is part of a hierarchical structure */
+  parentContextId?: string;
 }
 
 /**
- * 문맥 요약 결과
+ * Context summarization result
  */
 export interface SummaryResult {
-  /** 요약 성공 여부 */
+  /** Whether summarization was successful */
   success: boolean;
-  /** 생성된 요약 */
+  /** Generated summary */
   summary?: ContextSummary;
-  /** 오류 메시지 */
+  /** Error message */
   error?: string;
 }
 
 /**
- * AI 요약 서비스 인터페이스
+ * Vector repository interface
  */
-export interface SummarizerService {
-  /** 
-   * 컨텍스트 요약 생성
-   * @param messages 요약할 메시지 배열
-   * @param contextId 컨텍스트 ID
-   * @returns 요약 결과
+export interface VectorRepositoryInterface {
+  /**
+   * Add or update a summary in the vector index
+   * @param summary Summary to add or update
    */
-  summarize(messages: Message[], contextId: string): Promise<SummaryResult>;
+  addSummary(summary: ContextSummary): Promise<void>;
+  
+  /**
+   * Find contexts similar to the given text
+   * @param text Text to find similar contexts for
+   * @param limit Maximum number of results to return
+   * @returns Array of context IDs with similarity scores
+   */
+  findSimilarContexts(text: string, limit?: number): Promise<SimilarContext[]>;
+  
+  /**
+   * Delete a context from the vector index
+   * @param contextId Context ID to delete
+   */
+  deleteContext(contextId: string): Promise<void>;
+  
+  /**
+   * Check if a context exists in the vector index
+   * @param contextId Context ID to check
+   */
+  hasContext(contextId: string): Promise<boolean>;
 }
 
 /**
- * 저장소 인터페이스
+ * Graph repository interface
+ */
+export interface GraphRepositoryInterface {
+  /**
+   * Add a relationship between contexts
+   * @param source Source context ID
+   * @param target Target context ID
+   * @param type Relationship type
+   * @param weight Relationship weight/strength (0-1)
+   * @param metadata Additional metadata
+   */
+  addRelationship(source: string, target: string, type: ContextRelationshipType, weight: number, metadata?: any): Promise<void>;
+  
+  /**
+   * Get all relationships for a context
+   * @param contextId Context ID
+   * @returns Array of edges connected to the context
+   */
+  getRelationships(contextId: string): Promise<ContextRelationship[]>;
+  
+  /**
+   * Remove all relationships for a context
+   * @param contextId Context ID
+   */
+  removeContext(contextId: string): Promise<void>;
+  
+  /**
+   * Find a path between two contexts
+   * @param sourceId Source context ID
+   * @param targetId Target context ID
+   * @returns Array of context IDs forming a path, or empty array if no path exists
+   */
+  findPath(sourceId: string, targetId: string): Promise<string[]>;
+  
+  /**
+   * Get all contexts that have a specific relationship with the given context
+   * @param contextId Context ID
+   * @param type Relationship type
+   * @param direction 'outgoing' for edges where contextId is the source, 'incoming' for edges where contextId is the target, 'both' for both directions
+   * @returns Array of context IDs
+   */
+  getRelatedContexts(contextId: string, type: ContextRelationshipType, direction: 'outgoing' | 'incoming' | 'both'): Promise<string[]>;
+}
+
+/**
+ * AI summarization service interface
+ */
+export interface SummarizerService {
+  /** 
+   * Generate context summary
+   * @param messages Array of messages to summarize
+   * @param contextId Context identifier
+   * @returns Summarization result
+   */
+  summarize(messages: Message[], contextId: string): Promise<SummaryResult>;
+  
+  /**
+   * Generate hierarchical summary from multiple context summaries
+   * @param summaries Array of context summaries to consolidate
+   * @param parentId Identifier for the parent context
+   * @returns Hierarchical summary result
+   */
+  createHierarchicalSummary?(summaries: ContextSummary[], parentId: string): Promise<HierarchicalSummary>;
+  
+  /**
+   * Create a meta-summary across all contexts
+   * @param contexts Array of context IDs to include
+   * @returns Meta-summary result
+   */
+  createMetaSummary?(contexts: string[]): Promise<MetaSummary>;
+  
+  /**
+   * Analyze message importance
+   * @param message Message to analyze
+   * @param contextId Context identifier
+   * @returns Context importance level
+   */
+  analyzeMessageImportance?(message: Message, contextId: string): Promise<ContextImportance>;
+}
+
+/**
+ * Repository interface
  */
 export interface Repository {
   /**
-   * 요약 저장
-   * @param summary 저장할 요약
+   * Save a summary
+   * @param summary Summary to save
    */
   saveSummary(summary: ContextSummary): Promise<void>;
   
   /**
-   * 요약 로드
-   * @param contextId 컨텍스트 ID
-   * @returns 저장된 요약 또는 undefined (존재하지 않는 경우)
+   * Load a summary
+   * @param contextId Context identifier
+   * @returns Stored summary or undefined if it doesn't exist
    */
   loadSummary(contextId: string): Promise<ContextSummary | undefined>;
   
   /**
-   * Git 변경사항 커밋
-   * @param message 커밋 메시지
+   * Save a hierarchical summary
+   * @param summary Hierarchical summary to save
+   */
+  saveHierarchicalSummary?(summary: HierarchicalSummary): Promise<void>;
+  
+  /**
+   * Load a hierarchical summary
+   * @param contextId Context identifier
+   * @returns Stored hierarchical summary or undefined
+   */
+  loadHierarchicalSummary?(contextId: string): Promise<HierarchicalSummary | undefined>;
+  
+  /**
+   * Save a meta-summary
+   * @param summary Meta-summary to save
+   */
+  saveMetaSummary?(summary: MetaSummary): Promise<void>;
+  
+  /**
+   * Load a meta-summary
+   * @param id Meta-summary identifier
+   * @returns Stored meta-summary or undefined
+   */
+  loadMetaSummary?(id: string): Promise<MetaSummary | undefined>;
+  
+  /**
+   * Get all related contexts
+   * @param contextId Context identifier
+   * @returns Array of related context IDs
+   */
+  getRelatedContexts?(contextId: string): Promise<string[]>;
+  
+  /**
+   * Commit Git changes
+   * @param message Commit message
    */
   commit(message: string): Promise<void>;
   
   /**
-   * 컨텍스트 ID 해당 여부 검사
-   * @param filePath 검사할 파일 경로
-   * @returns 무시 여부
+   * Check if a path should be ignored
+   * @param filePath Path to check
+   * @returns Whether the file should be ignored
    */
   shouldIgnore(filePath: string): boolean;
 } 
