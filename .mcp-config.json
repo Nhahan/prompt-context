@@ -1,0 +1,8 @@
+{
+  "messageLimitThreshold": 2,
+  "tokenLimitPercentage": 80,
+  "contextDir": ".prompt-context",
+  "useGit": true,
+  "ignorePatterns": [],
+  "autoSummarize": true
+}
