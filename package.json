@@ -9,14 +9,17 @@
     "prompt-context-mcp": "./dist/mcp-server.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run clean && tsc && chmod +x dist/cli.js dist/mcp-server.js",
     "lint": "eslint src/**/*.ts",
     "prepublish": "npm run build",
     "clean": "rimraf dist",
     "prebuild": "npm run clean",
     "postbuild": "chmod +x dist/cli.js dist/mcp-server.js",
     "start:mcp": "node dist/mcp-server.js",
-    "mcp": "ts-node src/mcp-server.ts"
+    "mcp": "ts-node src/mcp-server.ts",
+    "cli": "node dist/cli.js",
+    "dev": "tsc -w",
+    "test": "jest"
   },
   "keywords": [
     "ai",

@@ -6,19 +6,10 @@
 
 ## Key Features
 
-- **Intelligent Context Management**: AI agents can autonomously record and retrieve conversation context as needed
-- **Context-based Memory Management**: Organize conversations separately by file or topic
-- **Automatic Summary Generation**: Automatically generate summaries when message count or token count reaches thresholds
-- **Hierarchical Summarization**: Maintains both detailed context and high-level summaries for efficient memory usage
-- **Importance-Based Retention**: Identifies and retains critical information based on intelligent importance analysis
-- **Related Context Detection**: Automatically detects and links related contexts for comprehensive understanding
-- **Meta Summaries**: Creates project-wide meta-summaries that connect related hierarchies of information
-- **Code Block Preservation**: Preserve code blocks in summaries to maintain important information
-- **Git Integration**: Manage summary files with Git for version control
-- **Zero Configuration**: Simply add the MCP to your AI tool configuration and it works automatically
-- **Vector Similarity Search**: Finds semantically similar conversations across different contexts
-- **Graph-based Relationships**: Maintains a knowledge graph connecting related conversations
-- **Autonomous Operation**: Cleans up irrelevant contexts automatically
+- **Intelligent Context Memory**: AI agents automatically remember conversation history and recall it when needed
+- **Importance-Based Context Retention**: Automatically identifies and preserves important information even before reaching message thresholds
+- **Automatic Summarization**: Generates context summaries when message count reaches thresholds
+- **Context Relationship Tracking**: Connects related conversations using vector similarity and graph relationships to maintain knowledge context
 
 ## Installation
 
@@ -248,10 +239,10 @@ The MCP server recognizes these configuration options:
 | `hierarchicalContext` | Enable hierarchical context management | true |
 | `metaSummaryThreshold` | Number of contexts before creating a meta-summary | 5 |
 | `maxHierarchyDepth` | Maximum hierarchical depth for meta-summaries | 3 |
-| `useVectorDb` | Enable vector database for similarity search | true |
-| `useGraphDb` | Enable graph database for context relationships | true |
-| `similarityThreshold` | Threshold for automatic relationship detection | 0.6 |
-| `autoCleanupContexts` | Automatically clean up irrelevant contexts | true |
+| `useVectorDb` | Enable vector similarity search | true |
+| `useGraphDb` | Enable graph-based context relationships | true |
+| `similarityThreshold` | Minimum similarity threshold for related contexts | 0.6 |
+| `autoCleanupContexts` | Enable automatic cleanup of irrelevant contexts | true |
 
 The `tokenLimitPercentage` of 80% serves as a guideline rather than a rigid limit. The AI agent intelligently decides when to store context based on relevance and importance, while using this threshold to prevent context windows from becoming too large.
 
@@ -273,6 +264,36 @@ Patterns defined in the `.gitignore` file are automatically loaded and used as i
 ## Contributing
 
 Interested in contributing to the Memory Context Protocol? Please see our [contributing guidelines](CONTRIBUTING.md) for details.
+
+## Using MCP in Team Environment
+
+When using MCP in a team environment, it's important to consider how context data is managed:
+
+### Git Management Recommendations
+
+By default, MCP saves all context data in the `.prompt-context` directory within your project. In team environments, you should add this directory to your `.gitignore` file to avoid:
+
+1. Bloating your Git repository with conversation context
+2. Potential merge conflicts when multiple team members modify context
+3. Inadvertently sharing private or sensitive conversations
+4. Polluting commit history with context changes
+
+Add the following to your project's `.gitignore` file:
+
+```
+# MCP context files
+.prompt-context/
+```
+
+### Sharing Context Across Team
+
+If you need to share specific contexts across your team, consider:
+
+1. Exporting important summaries explicitly for sharing
+2. Setting up a shared MCP server for your team
+3. Using a database backend for shared context (coming in future updates)
+
+This approach allows each team member to maintain their private conversation context while still being able to share critical context information when needed.
 
 ## License
 

@@ -485,6 +485,17 @@ export class MemoryContextProtocol {
    * @returns Whether summarization is needed
    */
   private shouldSummarize(context: ContextData): boolean {
+    // Check for high importance messages
+    const highImportanceMessages = context.messages.filter(m => 
+      m.importance === ContextImportance.HIGH || 
+      m.importance === ContextImportance.CRITICAL
+    );
+    
+    // If we have multiple critical messages, prioritize summarizing
+    if (highImportanceMessages.length >= 2) {
+      return true;
+    }
+    
     // Based on message count
     if (context.messagesSinceLastSummary >= this.config.messageLimitThreshold) {
       return true;
@@ -610,6 +621,10 @@ export class MemoryContextProtocol {
         const metaSummary = await this.summarizer.createMetaSummary(hierarchicalIds);
         
         if (metaSummary) {
+          // Ensure the metaSummary has the generated ID if it doesn't have one
+          if (!metaSummary.id) {
+            metaSummary.id = metaId;
+          }
           await this.repository.saveMetaSummary(metaSummary);
         }
       }

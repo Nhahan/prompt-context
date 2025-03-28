@@ -1,24 +1,15 @@
-# AI 에이전트를 위한 메모리 컨텍스트 프로토콜 (MCP)
+# Memory Context Protocol (MCP) for AI Agents
 
-`prompt-context`는 AI 에이전트가 이전 대화 컨텍스트를 효율적으로 기억하고 활용할 수 있도록 돕는 TypeScript 라이브러리입니다. 이 프로토콜은 각 파일이나 컨텍스트별로 대화 기록을 추적하고, 주기적으로 요약하며, AI 에이전트의 컨텍스트 이해력을 향상시키기 위해 요약본을 저장합니다.
+`prompt-context`는 AI 에이전트가 이전 대화 컨텍스트를 효율적으로 기억하고 활용할 수 있도록 도와주는 TypeScript 라이브러리입니다. 이 프로토콜은 각 파일이나 컨텍스트별로 대화 이력을 추적하고, 주기적으로 요약하여 저장함으로써 AI 에이전트의 문맥 이해력을 향상시킵니다.
 
-*[English](README.md)*
+*Read this in [English](README.md)*
 
 ## 주요 기능
 
-- **지능형 컨텍스트 관리**: AI 에이전트가 필요에 따라 자율적으로 대화 컨텍스트를 기록하고 검색할 수 있습니다
-- **컨텍스트 기반 메모리 관리**: 파일이나 주제별로 대화를 별도로 구성합니다
-- **자동 요약 생성**: 메시지 수나 토큰 수가 임계값에 도달하면 자동으로 요약을 생성합니다
-- **계층적 요약**: 효율적인 메모리 사용을 위해 상세 컨텍스트와 상위 수준 요약을 모두 유지합니다
-- **중요도 기반 보존**: 지능형 중요도 분석을 기반으로 중요한 정보를 식별하고 보존합니다
-- **관련 컨텍스트 감지**: 관련된 컨텍스트를 자동으로 감지하고 연결하여 포괄적인 이해를 돕습니다
-- **메타 요약**: 관련된 정보의 계층을 연결하는 프로젝트 전체 메타 요약을 생성합니다
-- **코드 블록 보존**: 요약에서 중요한 정보를 유지하기 위해 코드 블록을 보존합니다
-- **Git 통합**: Git으로 요약 파일을 버전 관리합니다
-- **제로 구성**: AI 도구 구성에 MCP를 추가하기만 하면 자동으로 작동합니다
-- **벡터 유사성 검색**: 서로 다른 컨텍스트 간에 의미론적으로 유사한 대화를 찾습니다
-- **그래프 기반 관계**: 관련 대화를 연결하는 지식 그래프를 유지합니다
-- **자율 작동**: 관련 없는 컨텍스트를 자동으로 정리합니다
+- **지능형 컨텍스트 기억**: AI 에이전트가 대화 이력을 자동으로 기억하고 필요할 때 불러옴
+- **중요도 기반 컨텍스트 저장**: 메시지 임계값에 도달하지 않아도 중요 정보를 자동으로 식별하고 보존
+- **자동 요약**: 메시지 수가 임계값에 도달하면 컨텍스트 요약 자동 생성
+- **컨텍스트 관계 추적**: 벡터 유사도와 그래프 관계로 연관된 대화를 연결하여 지식 맥락 유지
 
 ## 설치
 
@@ -31,7 +22,7 @@ npm install -g prompt-context@beta
 
 ## MCP 서버 사용법
 
-이 라이브러리는 Claude, Cursor 등의 AI 도구와 함께 MCP(Model Context Protocol) 서버로 사용되도록 설계되었습니다. AI 에이전트는 필요할 때 MCP를 통해 자율적으로 컨텍스트를 관리합니다.
+이 라이브러리는 Claude, Cursor 등과 같은 AI 도구와 함께 MCP(Model Context Protocol) 서버로 사용하도록 설계되었습니다. AI 에이전트는 필요할 때 MCP를 통해 자율적으로 컨텍스트를 관리합니다.
 
 ### Claude Desktop에서 사용하기
 
@@ -77,7 +68,7 @@ mkdir -p ~/.cursor && touch ~/.cursor/mcps.json
 }
 ```
 
-4. 변경사항을 적용하기 위해 Cursor를 재시작하세요.
+4. 변경 사항을 적용하기 위해 Cursor를 재시작하세요.
 
 5. 특정 프로젝트에서 MCP를 활성화하려면 프로젝트 루트에 `.cursor-settings.json` 파일을 다음과 같이 생성하세요:
 ```json
@@ -88,7 +79,7 @@ mkdir -p ~/.cursor && touch ~/.cursor/mcps.json
 }
 ```
 
-이렇게 하면 Cursor가 구성에 따라 자동 요약 기능과 함께 코딩 세션 간에 컨텍스트를 유지할 수 있습니다.
+이렇게 하면 Cursor가 구성에 따라 자동 요약 기능을 통해 코딩 세션 전반에 걸쳐 컨텍스트를 유지할 수 있습니다.
 
 ### Docker에서 사용하기
 
@@ -117,30 +108,30 @@ AI 에이전트가 다양한 파일이나 주제에 대한 대화 컨텍스트�
 **입력:**
 
 - `action` (string): 수행할 작업 - 'add', 'retrieve', 'summarize', 'get_related', 'get_hierarchy', 'get_meta', 'find_similar', 'add_relationship', 'find_path', 또는 'cleanup'
-- `contextId` (string): 컨텍스트 식별자(일반적으로 파일 경로나 주제 이름)
-- `role` (string, 'add' 작업의 경우): 메시지 발신자의 역할('user' 또는 'assistant')
-- `content` (string, 'add' 작업의 경우): 메시지 내용
-- `importance` (string, 'add' 작업의 경우): 중요도 수준('low', 'medium', 'high', 또는 'critical')
-- `tags` (string 배열, 'add' 작업의 경우): 메시지 분류를 위한 태그
-- `metaId` (string, 'get_meta' 작업의 경우): 검색할 메타 요약 ID
-- `searchText` (string, 'find_similar' 작업의 경우): 유사한 컨텍스트를 검색할 텍스트
-- `limit` (number, 'find_similar' 작업의 경우): 반환할 최대 결과 수
-- `targetId` (string, 관계 작업의 경우): 관계 작업을 위한 대상 컨텍스트 ID
-- `relationshipType` (string, 'add_relationship' 작업의 경우): 관계 유형('similar', 'continues', 'references', 'parent', 'child')
-- `strength` (number, 'add_relationship' 작업의 경우): 관계 강도(0-1)
+- `contextId` (string): 컨텍스트 식별자(일반적으로 파일 경로 또는 주제 이름)
+- `role` (string, 'add' 작업용): 메시지 발신자 역할('user' 또는 'assistant')
+- `content` (string, 'add' 작업용): 메시지 내용
+- `importance` (string, 'add' 작업용): 중요도 수준('low', 'medium', 'high', 또는 'critical')
+- `tags` (string 배열, 'add' 작업용): 메시지 분류를 위한 태그
+- `metaId` (string, 'get_meta' 작업용): 검색할 메타 요약 ID
+- `searchText` (string, 'find_similar' 작업용): 유사한 컨텍스트를 검색할 텍스트
+- `limit` (number, 'find_similar' 작업용): 반환할 최대 결과 수
+- `targetId` (string, 관계 작업용): 관계 작업을 위한 대상 컨텍스트 ID
+- `relationshipType` (string, 'add_relationship' 작업용): 관계 유형('similar', 'continues', 'references', 'parent', 'child')
+- `strength` (number, 'add_relationship' 작업용): 관계 강도(0-1)
 
 ## 고급 기능
 
-### 벡터 유사성 검색
+### 벡터 유사도 검색
 
-MCP는 벡터 임베딩을 사용하여 의미적으로 유사한 컨텍스트를 찾아내 AI 에이전트가 다음을 수행할 수 있게 합니다:
+MCP는 의미적으로 유사한 컨텍스트를 찾기 위해 벡터 임베딩을 사용하여 AI 에이전트가 다음을 수행할 수 있도록 합니다:
 
 - 다른 표현을 사용하더라도 유사한 주제를 논의하는 컨텍스트 찾기
 - 대화 간의 관계를 자동으로 감지
 - 더 일관된 지식 구조 생성
 - 관련 없는 컨텍스트를 정리하여 집중력 유지
 
-유사성 검색 사용 예:
+유사도 검색 사용 예:
 
 ```javascript
 // 쿼리와 유사한 컨텍스트 찾기
@@ -154,7 +145,7 @@ const { similarContexts } = await response.json();
 {
   "action": "find_similar",
   "contextId": "current-context",
-  "searchText": "자연어 처리를 위한 트랜스포머 모델",
+  "searchText": "transformer models for natural language processing",
   "limit": 5
 }
 ```
@@ -164,11 +155,11 @@ const { similarContexts } = await response.json();
 MCP는 다양한 관계 유형을 가진 컨텍스트 관계의 그래프 구조를 유지합니다:
 
 - **similar**: 유사한 주제를 논의하는 컨텍스트
-- **continues**: 하나의 컨텍스트가 다른 컨텍스트에서 주제를 계속 이어감
-- **references**: 하나의 컨텍스트가 다른 컨텍스트를 명시적으로 참조
+- **continues**: 하나의 컨텍스트가 다른 컨텍스트의 주제를 계속 이어가는 경우
+- **references**: 하나의 컨텍스트가 다른 컨텍스트를 명시적으로 참조하는 경우
 - **parent/child**: 컨텍스트 간의 계층적 관계
 
-이를 통해 더 정교한 컨텍스트 탐색 및 검색이 가능합니다:
+이를 통해 다음과 같은 더 정교한 컨텍스트 탐색 및 검색이 가능합니다:
 
 ```javascript
 // 컨텍스트 간 관계 추가
@@ -198,10 +189,10 @@ const response = await fetch('http://localhost:3000/tools/context_memory', {
 
 ### 자동 컨텍스트 정리
 
-MCP는 집중적이고 관리 가능한 컨텍스트 공간을 유지하기 위해 관련 없는 컨텍스트를 자동으로 제거할 수 있습니다:
+MCP는 관련 없는 컨텍스트를 자동으로 제거하여 집중적이고 관리 가능한 컨텍스트 공간을 유지할 수 있습니다:
 
 ```javascript
-// 현재 컨텍스트를 기준으로 정리 트리거
+// 현재 컨텍스트에 대한 정리 트리거
 await fetch('http://localhost:3000/tools/context_memory', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -214,16 +205,16 @@ await fetch('http://localhost:3000/tools/context_memory', {
 
 정리 프로세스:
 1. 현재 대화와 관련된 컨텍스트 식별
-2. 유사성이 높거나 명시적 관계가 있는 컨텍스트 보존
+2. 높은 유사성이나 명시적인 관계가 있는 컨텍스트 보존
 3. 부모-자식 관계를 보존하여 계층 구조 유지
-4. 관련이 없거나 더 이상 관련이 없는 컨텍스트 제거
+4. 관련 없거나 더 이상 관련이 없는 컨텍스트 제거
 
 ## 구성
 
-MCP는 합리적인 기본값을 제공하며 별도의 구성 없이도 작동합니다. 그러나 필요한 경우 MCP를 초기화하고 구성할 수 있습니다:
+MCP는 합리적인 기본값으로 제공되며 별도의 구성 없이도 작동합니다. 그러나 필요한 경우 MCP를 초기화하고 구성할 수 있습니다:
 
 ```bash
-# 현재 디렉토리에 MCP 초기화 (.mcp-config.json 생성)
+# 현재 디렉토리에서 MCP 초기화(.mcp-config.json 생성)
 npx prompt-context init
 
 # 현재 구성 보기
@@ -240,40 +231,49 @@ MCP 서버는 다음 구성 옵션을 인식합니다:
 | 옵션 | 설명 | 기본값 |
 |------|------|--------|
 | `messageLimitThreshold` | 요약을 트리거하는 메시지 수 임계값 | 10 |
-| `tokenLimitPercentage` | 모델 한도의 백분율로 표시된 토큰 수 임계값 | 80 |
+| `tokenLimitPercentage` | 모델 제한의 백분율로 표시되는 토큰 수 임계값 | 80 |
 | `contextDir` | 컨텍스트 저장 디렉토리 | '.prompt-context' |
-| `useGit` | Git 저장소 사용 여부 | true |
+| `useGit` | Git 리포지토리 사용 여부 | true |
 | `ignorePatterns` | 무시할 파일 및 디렉토리 패턴 | [] |
 | `autoSummarize` | 자동 요약 활성화 여부 | true |
 | `hierarchicalContext` | 계층적 컨텍스트 관리 활성화 | true |
 | `metaSummaryThreshold` | 메타 요약을 생성하기 전 컨텍스트 수 | 5 |
 | `maxHierarchyDepth` | 메타 요약의 최대 계층 깊이 | 3 |
-| `useVectorDb` | 유사성 검색을 위한 벡터 데이터베이스 활성화 | true |
-| `useGraphDb` | 컨텍스트 관계를 위한 그래프 데이터베이스 활성화 | true |
-| `similarityThreshold` | 자동 관계 감지를 위한 임계값 | 0.6 |
-| `autoCleanupContexts` | 관련 없는 컨텍스트 자동 정리 | true |
+| `useVectorDb` | 벡터 유사도 검색 활성화 | true |
+| `useGraphDb` | 그래프 기반 컨텍스트 관계 활성화 | true |
+| `similarityThreshold` | 관련 컨텍스트의 최소 유사도 임계값 | 0.6 |
+| `autoCleanupContexts` | 관련 없는 컨텍스트의 자동 정리 활성화 | true |
 
-80%의 `tokenLimitPercentage`는 엄격한 제한보다는 가이드라인으로 작용합니다. AI 에이전트는 이 임계값을 사용하여 컨텍스트 창이 너무 커지는 것을 방지하면서, 관련성과 중요도에 따라 컨텍스트를 저장할 시기를 지능적으로 결정합니다.
+## 팀 환경에서 MCP 사용하기
 
-### .gitignore 통합
+팀 환경에서 MCP를 사용할 때는 컨텍스트 데이터가 어떻게 관리되는지 고려하는 것이 중요합니다:
 
-`.gitignore` 파일에 정의된 패턴은 자동으로 로드되어 무시 패턴으로 사용됩니다. 또한 다음과 같은 기본 패턴이 적용됩니다:
+### Git 관리 권장 사항
 
-- node_modules
-- .git
-- dist
-- build
-- coverage
-- tmp
-- *.log
-- *.lock
-- *.min.*
-- *.map
+기본적으로 MCP는 모든 컨텍스트 데이터를 프로젝트 내의 `.prompt-context` 디렉토리에 저장합니다. 팀 환경에서는 다음을 방지하기 위해 이 디렉토리를 `.gitignore` 파일에 추가해야 합니다:
 
-## 기여하기
+1. 대화 컨텍스트로 Git 저장소 비대화
+2. 여러 팀원이 컨텍스트를 수정할 때 발생할 수 있는 병합 충돌
+3. 의도치 않게 개인적이거나 민감한 대화 공유
+4. 컨텍스트 변경으로 커밋 히스토리 오염
 
-Memory Context Protocol에 기여하는 데 관심이 있으신가요? 자세한 내용은 [기여 가이드라인](CONTRIBUTING.md)을 참조하세요.
+프로젝트의 `.gitignore` 파일에 다음을 추가하세요:
+
+```
+# MCP 컨텍스트 파일
+.prompt-context/
+```
+
+### 팀 간 컨텍스트 공유
+
+특정 컨텍스트를 팀 전체에서 공유해야 하는 경우 다음을 고려하세요:
+
+1. 중요한 요약을 명시적으로 내보내어 공유
+2. 팀을 위한 공유 MCP 서버 설정
+3. 공유 컨텍스트를 위한 데이터베이스 백엔드 사용(향후 업데이트 예정)
+
+이 접근 방식은 각 팀원이 개인 대화 컨텍스트를 유지하면서 필요할 때 중요한 컨텍스트 정보를 공유할 수 있도록 합니다.
 
 ## 라이선스
 
-이 프로젝트는 MIT 라이선스에 따라 라이선스가 부여됩니다 - 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요. 
+MIT 

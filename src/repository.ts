@@ -70,8 +70,8 @@ export class FileSystemRepository implements Repository {
     
     // Create subdirectories for hierarchical summaries and meta-summaries
     if (this.config.hierarchicalContext) {
-      fs.ensureDirSync(path.join(contextDir, 'hierarchical'));
-      fs.ensureDirSync(path.join(contextDir, 'meta'));
+      fs.ensureDirSync(path.join(contextDir, 'hierarchical-summaries'));
+      fs.ensureDirSync(path.join(contextDir, 'meta-summaries'));
     }
   }
 
@@ -90,33 +90,29 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * Get the file path for a hierarchical summary
+   * Get path to hierarchical summary file
    * @param contextId Context identifier
-   * @returns Path to the hierarchical summary file
+   * @returns Path to hierarchical summary file
    */
   private getHierarchicalSummaryPath(contextId: string): string {
-    const sanitizedId = contextId.replace(/[\/\\:*?"<>|]/g, '_');
-    return path.join(
-      process.cwd(),
-      this.config.contextDir,
-      'hierarchical',
-      `${sanitizedId}.hierarchy.json`
-    );
+    // Ensure directory exists
+    const hierarchicalDir = path.join(process.cwd(), this.config.contextDir, 'hierarchical-summaries');
+    fs.ensureDirSync(hierarchicalDir);
+    
+    return path.join(hierarchicalDir, `${contextId}.hierarchical.json`);
   }
 
   /**
-   * Get the file path for a meta-summary
+   * Get path to meta-summary file
    * @param id Meta-summary identifier
-   * @returns Path to the meta-summary file
+   * @returns Path to meta-summary file
    */
   private getMetaSummaryPath(id: string): string {
-    const sanitizedId = id.replace(/[\/\\:*?"<>|]/g, '_');
-    return path.join(
-      process.cwd(),
-      this.config.contextDir,
-      'meta',
-      `${sanitizedId}.meta.json`
-    );
+    // Ensure directory exists
+    const metaDir = path.join(process.cwd(), this.config.contextDir, 'meta-summaries');
+    fs.ensureDirSync(metaDir);
+    
+    return path.join(metaDir, `${id}.meta.json`);
   }
 
   /**
@@ -257,7 +253,7 @@ export class FileSystemRepository implements Repository {
   async getAllHierarchicalContextIds(): Promise<string[]> {
     if (!this.config.hierarchicalContext) return [];
     
-    const hierarchicalDir = path.join(process.cwd(), this.config.contextDir, 'hierarchical');
+    const hierarchicalDir = path.join(process.cwd(), this.config.contextDir, 'hierarchical-summaries');
     
     try {
       if (!await fs.pathExists(hierarchicalDir)) {
@@ -267,8 +263,8 @@ export class FileSystemRepository implements Repository {
       const files = await fs.readdir(hierarchicalDir);
       
       return files
-        .filter(file => file.endsWith('.hierarchy.json'))
-        .map(file => file.replace(/\.hierarchy\.json$/, ''));
+        .filter(file => file.endsWith('.hierarchical.json'))
+        .map(file => file.replace(/\.hierarchical\.json$/, ''));
     } catch (error) {
       console.error('Error getting hierarchical contexts:', error);
       return [];
@@ -282,7 +278,7 @@ export class FileSystemRepository implements Repository {
   async getAllMetaSummaryIds(): Promise<string[]> {
     if (!this.config.hierarchicalContext) return [];
     
-    const metaDir = path.join(process.cwd(), this.config.contextDir, 'meta');
+    const metaDir = path.join(process.cwd(), this.config.contextDir, 'meta-summaries');
     
     try {
       if (!await fs.pathExists(metaDir)) {
@@ -399,7 +395,8 @@ export class FileSystemRepository implements Repository {
     const files: string[] = [];
     
     async function scan(dir: string) {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
+      const entriesPromise = fs.readdir(dir, { withFileTypes: true });
+      const entries = await entriesPromise;
       
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);

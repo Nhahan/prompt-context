@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { ContextSummary, Message, SimilarContext } from './types';
+import { ContextSummary, SimilarContext } from './types';
 
 /**
  * Interface for handling interactions with the vector database
@@ -111,7 +111,8 @@ export class VectorRepository implements VectorRepositoryInterface {
         this.embeddingModel = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
       } catch (modelError) {
         console.error('Error loading embedding model:', modelError);
-        throw new Error('Failed to load embedding model');
+        this.fallbackMode = true; // Enable fallback mode instead of throwing
+        console.warn('Switching to fallback mode due to embedding model loading failure');
       }
       
       this.initialized = true;
@@ -130,10 +131,16 @@ export class VectorRepository implements VectorRepositoryInterface {
     this.contextMap = new Map();
     this.nextIndex = 0;
     
-    // Initialize with default capacity
-    this.vectorIndex.initIndex(1000);
-    
-    console.log('Created new vector index');
+    try {
+      // Initialize with default capacity
+      console.log('Initializing vector index with default capacity (1000)');
+      this.vectorIndex.initIndex(1000);
+      
+      console.log('Created new vector index');
+    } catch (error) {
+      console.error('Error creating new index:', error);
+      throw error;
+    }
   }
   
   /**
@@ -210,24 +217,44 @@ export class VectorRepository implements VectorRepositoryInterface {
   public async addSummary(summary: ContextSummary): Promise<void> {
     await this.ensureInitialized();
     
-    if (this.fallbackMode) return;
+    if (this.fallbackMode) {
+      console.log(`Fallback mode active, skipping vector addition for ${summary.contextId}`);
+      return;
+    }
     
     try {
       const { contextId } = summary;
+      console.log(`Generating embedding for context ${contextId}`);
       const embedding = await this.generateEmbedding(summary.summary);
       
-      if (!embedding) return;
+      if (!embedding) {
+        console.log(`Failed to generate embedding for ${contextId}`);
+        return;
+      }
+      
+      console.log(`Generated embedding for ${contextId}, embedding size: ${embedding.length}`);
+      
+      // Convert Float32Array to regular array for HNSWLib
+      const embeddingArray = Array.from(embedding);
+      console.log(`Converted embedding to Array for ${contextId}`);
       
       // Check if context already exists
       if (this.contextMap.has(contextId)) {
-        // Update existing vector
+        // Update existing vector - first remove old one
         const index = this.contextMap.get(contextId)!;
-        this.vectorIndex.replaceItem(embedding, index);
+        console.log(`Updating existing vector for ${contextId} at index ${index}`);
+        
+        // Note: HNSWLib doesn't have direct "replace" functionality
+        // Add the new point with the same index, which will update the vector
+        this.vectorIndex.addPoint(embeddingArray, index);
+        console.log(`Updated vector for ${contextId}`);
       } else {
         // Add new vector
         const index = this.nextIndex++;
-        this.vectorIndex.addItem(embedding, index);
+        console.log(`Adding new vector for ${contextId} at index ${index}`);
+        this.vectorIndex.addPoint(embeddingArray, index);
         this.contextMap.set(contextId, index);
+        console.log(`Added vector for ${contextId}, new map size: ${this.contextMap.size}`);
       }
       
       // Save index periodically
@@ -247,24 +274,36 @@ export class VectorRepository implements VectorRepositoryInterface {
     await this.ensureInitialized();
     
     if (this.fallbackMode || this.contextMap.size === 0) {
+      console.log(`Cannot search: ${this.fallbackMode ? 'in fallback mode' : 'context map is empty'}`);
       return [];
     }
     
     try {
+      console.log(`Generating embedding for search query: "${text.substring(0, 50)}..."`);
       const embedding = await this.generateEmbedding(text);
       
-      if (!embedding) return [];
+      if (!embedding) {
+        console.log('Failed to generate embedding for search query');
+        return [];
+      }
+      
+      // Convert Float32Array to regular array for HNSWLib
+      const embeddingArray = Array.from(embedding);
+      console.log(`Converted search embedding to Array, length: ${embeddingArray.length}`);
       
       // Adjust limit if we have fewer contexts
       const actualLimit = Math.min(limit, this.contextMap.size);
+      console.log(`Searching for ${actualLimit} similar contexts among ${this.contextMap.size} total contexts`);
       
       // Perform search
-      const result = this.vectorIndex.searchKnn(embedding, actualLimit);
+      const result = this.vectorIndex.searchKnn(embeddingArray, actualLimit);
+      console.log(`Search completed, found ${result.neighbors ? result.neighbors.length : 0} results`);
       
       // Map labels (indices) back to context IDs
       const contextEntries = Array.from(this.contextMap.entries());
+      console.log(`Context map entries: ${JSON.stringify(contextEntries.map(([id, idx]) => `${id}:${idx}`))}`);
       
-      return result.neighbors.map((index: number, i: number) => {
+      const mappedResults = result.neighbors.map((index: number, i: number) => {
         const entry = contextEntries.find(([_, idx]) => idx === index);
         const contextId = entry ? entry[0] : `unknown-${index}`;
         
@@ -272,11 +311,16 @@ export class VectorRepository implements VectorRepositoryInterface {
         const distance = result.distances[i];
         const similarity = 1 - distance; // Cosine distance is in [0,2], so 1-distance gives a score in [-1,1]
         
+        console.log(`Result ${i}: Index ${index} maps to context "${contextId}" with score ${similarity.toFixed(4)}`);
+        
         return {
           id: contextId,
           score: similarity
         };
       }).filter((item: SimilarContext) => item.score > 0); // Filter out negative similarities
+      
+      console.log(`Returning ${mappedResults.length} results after filtering`);
+      return mappedResults;
     } catch (error) {
       console.error('Error finding similar contexts:', error);
       return [];
@@ -342,6 +386,14 @@ export class VectorRepository implements VectorRepositoryInterface {
       await this.saveIndex();
       this.initialized = false;
     }
+  }
+  
+  /**
+   * Set the fallback mode
+   * @param fallbackMode Whether to enable fallback mode
+   */
+  public setFallbackMode(fallbackMode: boolean): void {
+    this.fallbackMode = fallbackMode;
   }
 }
 
@@ -487,21 +539,30 @@ export class KeywordMatchRepository implements VectorRepositoryInterface {
 }
 
 /**
- * Factory function to create the appropriate vector repository based on environment
+ * Create a vector repository instance
  * @param contextDir Directory to store vector data
- * @returns Vector repository implementation
+ * @param forceFallback Force fallback mode for testing
+ * @returns Vector repository instance
  */
-export async function createVectorRepository(contextDir: string): Promise<VectorRepositoryInterface> {
+export async function createVectorRepository(
+  contextDir: string,
+  forceFallback?: boolean
+): Promise<VectorRepositoryInterface> {
   try {
-    // Try to create vector repository
-    const vectorRepo = new VectorRepository(contextDir);
+    if (forceFallback) {
+      console.log('Forcing fallback mode for vector repository');
+      const repo = new VectorRepository(contextDir);
+      repo.setFallbackMode(true);
+      return repo;
+    }
     
-    // Test that it works
-    await vectorRepo.findSimilarContexts("test", 1);
-    
-    return vectorRepo;
+    return new VectorRepository(contextDir);
   } catch (error) {
-    console.warn('Vector repository initialization failed, falling back to keyword matching:', error);
-    return new KeywordMatchRepository(contextDir);
+    console.error('Error creating vector repository:', error);
+    
+    // Create repository in fallback mode
+    const fallbackRepo = new VectorRepository(contextDir);
+    fallbackRepo.setFallbackMode(true);
+    return fallbackRepo;
   }
 } 
