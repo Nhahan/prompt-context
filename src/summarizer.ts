@@ -198,22 +198,33 @@ export abstract class BaseSummarizer implements SummarizerService {
     hierarchicalSummaries: HierarchicalSummary[],
     hierarchyLevel = 2
   ): MetaSummary {
-    const contextIds = hierarchicalSummaries.map(s => s.contextId);
-    const now = Date.now();
+    // Extract all code blocks from child summaries
+    const sharedCodeBlocks: CodeBlock[] = [];
+    const contextIds: string[] = [];
     
-    // Collect the most important code blocks across all hierarchical summaries
-    const allCodeBlocks = hierarchicalSummaries.flatMap(s => s.codeBlocks);
-    const sortedBlocks = allCodeBlocks
-      .sort((a, b) => (b.importance || 0) - (a.importance || 0))
-      .slice(0, 10); // Keep only the top 10 most important blocks
+    hierarchicalSummaries.forEach(summary => {
+      // Add code blocks
+      if (summary.codeBlocks?.length) {
+        sharedCodeBlocks.push(...summary.codeBlocks);
+      }
+      
+      // Add this context ID
+      contextIds.push(summary.contextId);
+      
+      // Add child context IDs if available
+      if (summary.childContextIds?.length) {
+        contextIds.push(...summary.childContextIds);
+      }
+    });
     
+    // Return meta-summary object
     return {
       id,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
       summary,
       contextIds,
-      sharedCodeBlocks: sortedBlocks,
+      sharedCodeBlocks,
       hierarchyLevel
     };
   }
@@ -236,14 +247,37 @@ export abstract class BaseSummarizer implements SummarizerService {
     summaries: ContextSummary[], 
     parentId: string
   ): Promise<HierarchicalSummary> {
-    // Default implementation: combine summaries with a simple header
-    const combinedText = summaries
-      .map(s => `Context ${s.contextId}: ${s.summary}`)
-      .join('\n\n');
-    
-    const hierarchySummary = `Hierarchical summary for ${summaries.length} related contexts: ${combinedText.substring(0, 200)}...`;
-    
-    return this.createHierarchicalSummaryObject(parentId, hierarchySummary, summaries);
+    try {
+      if (!summaries || summaries.length === 0) {
+        throw new Error('No summaries provided for hierarchical summary creation');
+      }
+      
+      if (!parentId) {
+        throw new Error('Parent ID is required for hierarchical summary');
+      }
+      
+      // Default implementation: combine summaries with a simple header
+      const combinedText = summaries
+        .map(s => `Context ${s.contextId}: ${s.summary}`)
+        .join('\n\n');
+      
+      const hierarchySummary = `Hierarchical summary for ${summaries.length} related contexts: ${combinedText.substring(0, 200)}...`;
+      
+      return this.createHierarchicalSummaryObject(parentId, hierarchySummary, summaries);
+    } catch (error) {
+      console.error('Error creating hierarchical summary:', error);
+      // Return a basic fallback summary
+      return {
+        contextId: parentId,
+        lastUpdated: Date.now(),
+        summary: `Failed to create detailed hierarchical summary for ${summaries.length} contexts.`,
+        codeBlocks: [],
+        messageCount: summaries.reduce((sum, s) => sum + s.messageCount, 0),
+        version: 1,
+        hierarchyLevel: 1,
+        childContextIds: summaries.map(s => s.contextId)
+      };
+    }
   }
   
   /**
@@ -252,24 +286,80 @@ export abstract class BaseSummarizer implements SummarizerService {
    * @returns Meta-summary
    */
   async createMetaSummary(contexts: string[]): Promise<MetaSummary> {
-    // Create a simple meta-summary
-    const metaId = `meta_${Date.now()}`;
-    const summary = `Meta-summary covering ${contexts.length} hierarchical contexts`;
-    
-    // This is a placeholder - a real implementation would load the hierarchical summaries
-    // and analyze them. Here we're creating a simplified version.
-    const dummyHierarchies: HierarchicalSummary[] = contexts.map(contextId => ({
-      contextId,
-      lastUpdated: Date.now(),
-      summary: `Dummy summary for ${contextId}`,
-      codeBlocks: [],
-      messageCount: 0,
-      version: 1,
-      hierarchyLevel: 1,
-      childContextIds: []
-    }));
-    
-    return this.createMetaSummaryObject(metaId, summary, dummyHierarchies);
+    try {
+      // 최소 2개 이상의 컨텍스트가 필요
+      if (contexts.length < 2) {
+        return {
+          id: `meta-${Date.now()}`,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          summary: `Failed to create detailed meta-summary for ${contexts.length} contexts.`,
+          contextIds: contexts,
+          sharedCodeBlocks: [],
+          hierarchyLevel: 2
+        };
+      }
+      
+      // 계층적 요약 로드
+      const hierarchicalSummaries: HierarchicalSummary[] = [];
+      
+      for (const contextId of contexts) {
+        try {
+          // 요약을 계층적 요약으로 변환
+          const summary = {
+            contextId,
+            lastUpdated: Date.now(),
+            summary: `Context for ${contextId}`,
+            codeBlocks: [],
+            messageCount: 0,
+            version: 1,
+            hierarchyLevel: 1,
+            childContextIds: []
+          } as HierarchicalSummary;
+          
+          hierarchicalSummaries.push(summary);
+        } catch (error) {
+          console.warn(`Failed to load hierarchical summary for ${contextId}:`, error);
+        }
+      }
+      
+      if (hierarchicalSummaries.length < 2) {
+        return {
+          id: `meta-${Date.now()}`,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          summary: `Failed to create meta-summary due to insufficient hierarchical summaries.`,
+          contextIds: contexts,
+          sharedCodeBlocks: [],
+          hierarchyLevel: 2
+        };
+      }
+      
+      // 메타 요약 생성
+      const metaSummary = `Meta-summary for ${hierarchicalSummaries.length} contexts: \n\n` + 
+        hierarchicalSummaries.map(s => s.summary).join('\n\n');
+      
+      const metaId = `meta-${Date.now()}`;
+      
+      return this.createMetaSummaryObject(
+        metaId,
+        metaSummary,
+        hierarchicalSummaries
+      );
+    } catch (error) {
+      console.error('Error creating meta-summary:', error);
+      
+      // 기본 메타 요약 반환
+      return {
+        id: `meta-fallback-${Date.now()}`,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        summary: `Failed to create detailed meta-summary for ${contexts.length} contexts.`,
+        contextIds: contexts,
+        sharedCodeBlocks: [],
+        hierarchyLevel: 2
+      };
+    }
   }
   
   /**
@@ -346,9 +436,11 @@ export class SimpleTextSummarizer extends BaseSummarizer {
       
       return { success: true, summary: summaryObject };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Error summarizing context ${contextId}:`, errorMessage);
       return { 
         success: false, 
-        error: error instanceof Error ? error.message : String(error) 
+        error: errorMessage
       };
     }
   }
@@ -363,21 +455,44 @@ export class SimpleTextSummarizer extends BaseSummarizer {
     summaries: ContextSummary[], 
     parentId: string
   ): Promise<HierarchicalSummary> {
-    // Enhanced version of the hierarchical summary for SimpleTextSummarizer
-    
-    // Identify the most important contexts
-    const sortedSummaries = [...summaries].sort(
-      (a, b) => (b.importanceScore || 0.5) - (a.importanceScore || 0.5)
-    );
-    
-    const topSummaries = sortedSummaries.slice(0, 3);
-    const topSummaryTexts = topSummaries
-      .map(s => `Context ${s.contextId}: ${s.summary}`)
-      .join('\n');
-    
-    const hierarchySummary = `Hierarchical summary for ${summaries.length} related contexts.\n\nMost important topics:\n${topSummaryTexts}\n\nThis hierarchy contains a total of ${summaries.reduce((sum, s) => sum + s.messageCount, 0)} messages.`;
-    
-    return this.createHierarchicalSummaryObject(parentId, hierarchySummary, summaries);
+    try {
+      if (!summaries || summaries.length === 0) {
+        throw new Error('No summaries provided for hierarchical summary creation');
+      }
+      
+      if (!parentId) {
+        throw new Error('Parent ID is required for hierarchical summary');
+      }
+      
+      // Enhanced version of the hierarchical summary for SimpleTextSummarizer
+      
+      // Identify the most important contexts
+      const sortedSummaries = [...summaries].sort(
+        (a, b) => (b.importanceScore || 0.5) - (a.importanceScore || 0.5)
+      );
+      
+      const topSummaries = sortedSummaries.slice(0, 3);
+      const topSummaryTexts = topSummaries
+        .map(s => `Context ${s.contextId}: ${s.summary}`)
+        .join('\n');
+      
+      const hierarchySummary = `Hierarchical summary for ${summaries.length} related contexts.\n\nMost important topics:\n${topSummaryTexts}\n\nThis hierarchy contains a total of ${summaries.reduce((sum, s) => sum + s.messageCount, 0)} messages.`;
+      
+      return this.createHierarchicalSummaryObject(parentId, hierarchySummary, summaries);
+    } catch (error) {
+      console.error('Error creating hierarchical summary:', error);
+      // Return a basic fallback summary
+      return {
+        contextId: parentId,
+        lastUpdated: Date.now(),
+        summary: `Failed to create detailed hierarchical summary for ${summaries.length} contexts.`,
+        codeBlocks: [],
+        messageCount: summaries.reduce((sum, s) => sum + s.messageCount, 0),
+        version: 1,
+        hierarchyLevel: 1,
+        childContextIds: summaries.map(s => s.contextId)
+      };
+    }
   }
   
   /**
@@ -386,55 +501,70 @@ export class SimpleTextSummarizer extends BaseSummarizer {
    * @returns Meta-summary
    */
   async createMetaSummary(contextIds: string[]): Promise<MetaSummary> {
-    const metaId = `meta_${Date.now()}`;
-    const hierarchyCount = contextIds.length;
-    
-    const metaSummary = `Project-wide meta-summary covering ${hierarchyCount} hierarchical contexts. This automatically generated meta-summary provides an overview of all related conversations in this project.`;
-    
-    // In a real implementation, we would load the hierarchical summaries here
-    // For simplicity, we're creating dummy hierarchies
-    const dummyHierarchies: HierarchicalSummary[] = contextIds.map((id, index) => ({
-      contextId: id,
-      lastUpdated: Date.now(),
-      summary: `Dummy summary for hierarchy ${index + 1}`,
-      codeBlocks: [],
-      messageCount: 100 * (index + 1),
-      version: 1,
-      hierarchyLevel: 1,
-      childContextIds: []
-    }));
-    
-    return this.createMetaSummaryObject(metaId, metaSummary, dummyHierarchies);
+    try {
+      if (!contextIds || contextIds.length === 0) {
+        throw new Error('No context IDs provided for meta-summary creation');
+      }
+      
+      const metaId = `meta_${Date.now()}`;
+      const hierarchyCount = contextIds.length;
+      
+      const metaSummary = `Project-wide meta-summary covering ${hierarchyCount} hierarchical contexts. This automatically generated meta-summary provides an overview of all related conversations in this project.`;
+      
+      // In a real implementation, we would load the hierarchical summaries here
+      // For simplicity, we're creating dummy hierarchies
+      const dummyHierarchies: HierarchicalSummary[] = contextIds.map((id, index) => ({
+        contextId: id,
+        lastUpdated: Date.now(),
+        summary: `Dummy summary for hierarchy ${index + 1}`,
+        codeBlocks: [],
+        messageCount: 0,
+        version: 1,
+        hierarchyLevel: 1,
+        childContextIds: []
+      }));
+      
+      return this.createMetaSummaryObject(metaId, metaSummary, dummyHierarchies);
+    } catch (error) {
+      console.error('Error creating meta-summary:', error);
+      // Return a basic fallback meta-summary
+      return {
+        id: `meta_fallback_${Date.now()}`,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        summary: `Failed to create detailed meta-summary for ${contextIds.length} contexts.`,
+        contextIds,
+        sharedCodeBlocks: [],
+        hierarchyLevel: 2
+      };
+    }
   }
 }
 
 /**
- * Abstract class for integration with external AI models
+ * AI Model-based summarizer
+ * Integrates with external AI models for summarization
  */
-export abstract class AIModelSummarizer extends BaseSummarizer {
-  /**
-   * Abstract method to send summarization requests to an AI model
-   * @param messages Array of messages to summarize
-   * @returns Summary text generated by the AI model
-   */
-  protected abstract generateSummaryWithAI(messages: Message[]): Promise<string>;
+export class AIModelSummarizer extends BaseSummarizer {
+  // Custom summarization callback function type
+  private summarizeWithAI: (
+    messages: Message[], 
+    contextId: string
+  ) => Promise<string>;
   
   /**
-   * Abstract method to send hierarchical summarization requests to an AI model
-   * @param summaries Array of context summaries
-   * @returns Summary text generated by the AI model
+   * Constructor
+   * @param summarizeCallback Callback function that implements the AI summarization logic
    */
-  protected abstract generateHierarchicalSummaryWithAI(summaries: ContextSummary[]): Promise<string>;
+  constructor(
+    summarizeCallback: (messages: Message[], contextId: string) => Promise<string>
+  ) {
+    super();
+    this.summarizeWithAI = summarizeCallback;
+  }
   
   /**
-   * Abstract method to send meta-summary requests to an AI model
-   * @param hierarchicalSummaries Array of hierarchical summaries
-   * @returns Summary text generated by the AI model
-   */
-  protected abstract generateMetaSummaryWithAI(hierarchicalSummaries: HierarchicalSummary[]): Promise<string>;
-  
-  /**
-   * Generate summary using an AI model
+   * Generate summary using the provided AI model
    * @param messages Array of messages to summarize
    * @param contextId Context ID
    * @returns Summary result
@@ -445,134 +575,243 @@ export abstract class AIModelSummarizer extends BaseSummarizer {
         return { success: false, error: 'No messages to summarize' };
       }
       
-      // Generate summary using AI model
-      const summaryText = await this.generateSummaryWithAI(messages);
+      // Call the AI model for summarization
+      const summaryText = await this.summarizeWithAI(messages, contextId);
+      
+      if (!summaryText) {
+        return { 
+          success: false, 
+          error: 'AI model returned empty summary' 
+        };
+      }
+      
+      // Create summary object with AI-generated summary
       const summaryObject = this.createSummaryObject(contextId, summaryText, messages);
       
       return { success: true, summary: summaryObject };
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Error in AI summarization for context ${contextId}:`, errorMessage);
+      
+      // Create fallback summary
+      const fallbackSummary = await this.createFallbackSummary(messages, contextId);
+      
+      return { 
+        success: false, 
+        error: errorMessage,
+        fallback: fallbackSummary
       };
     }
   }
   
   /**
-   * Generate hierarchical summary using an AI model
-   * @param summaries Array of context summaries
-   * @param parentId Parent context ID
-   * @returns Hierarchical summary
+   * Create a fallback summary when AI summarization fails
+   * @param messages Array of messages
+   * @param contextId Context ID
+   * @returns Simple summary object
    */
-  async createHierarchicalSummary(
-    summaries: ContextSummary[], 
-    parentId: string
-  ): Promise<HierarchicalSummary> {
-    try {
-      const summaryText = await this.generateHierarchicalSummaryWithAI(summaries);
-      return this.createHierarchicalSummaryObject(parentId, summaryText, summaries);
-    } catch (error) {
-      console.error('Error generating hierarchical summary:', error);
-      // Fall back to base implementation
-      return super.createHierarchicalSummary(summaries, parentId);
-    }
-  }
-  
-  /**
-   * Generate meta-summary using an AI model
-   * @param contextIds Array of context IDs to include
-   * @returns Meta-summary
-   */
-  async createMetaSummary(contextIds: string[]): Promise<MetaSummary> {
-    try {
-      // In a real implementation, we would load the hierarchical summaries here
-      // For simplicity, we're creating dummy hierarchies
-      const dummyHierarchies: HierarchicalSummary[] = contextIds.map((id, index) => ({
-        contextId: id,
-        lastUpdated: Date.now(),
-        summary: `Hierarchy ${index + 1}`,
-        codeBlocks: [],
-        messageCount: 100 * (index + 1),
-        version: 1,
-        hierarchyLevel: 1,
-        childContextIds: []
-      }));
+  private async createFallbackSummary(
+    messages: Message[], 
+    contextId: string
+  ): Promise<ContextSummary> {
+    // Use a simple approach as fallback
+    const lastUserMessage = messages
+      .filter(m => m.role === 'user')
+      .slice(-3)
+      .map(m => m.content.substring(0, 100) + (m.content.length > 100 ? '...' : ''))
+      .join(' | ');
       
-      const metaId = `meta_${Date.now()}`;
-      const summaryText = await this.generateMetaSummaryWithAI(dummyHierarchies);
-      
-      return this.createMetaSummaryObject(metaId, summaryText, dummyHierarchies);
-    } catch (error) {
-      console.error('Error generating meta-summary:', error);
-      // Fall back to base implementation
-      return super.createMetaSummary(contextIds);
-    }
+    const summary = `[Fallback] Summary of ${messages.length} messages for context ${contextId}. Recent topics: ${lastUserMessage}`;
+    return this.createSummaryObject(contextId, summary, messages);
   }
 }
 
 /**
- * Example implementation for integration with custom external AI services
+ * Custom AI Summarizer that can be configured with specific prompts and behaviors
+ * This class provides a flexible way to integrate with any LLM API
  */
-export class CustomAISummarizer extends AIModelSummarizer {
-  private summarizerFunction: (messages: Message[]) => Promise<string>;
-  private hierarchicalSummarizerFunction?: (summaries: ContextSummary[]) => Promise<string>;
-  private metaSummarizerFunction?: (hierarchies: HierarchicalSummary[]) => Promise<string>;
+export class CustomAISummarizer extends BaseSummarizer {
+  // LLM API callback function
+  private llmApiCallback: (prompt: string, options?: any) => Promise<string>;
+  
+  // Template for summarization prompt
+  private summaryTemplate: string;
+  
+  // Template for hierarchical summary prompt
+  private hierarchicalTemplate: string;
   
   /**
    * Constructor
-   * @param summarizerFunction Function to communicate with external AI model for regular summarization
-   * @param hierarchicalSummarizerFunction Optional function for hierarchical summarization
-   * @param metaSummarizerFunction Optional function for meta-summarization
+   * @param llmApiCallback Function that calls the LLM API with a prompt
+   * @param options Configuration options
    */
   constructor(
-    summarizerFunction: (messages: Message[]) => Promise<string>,
-    hierarchicalSummarizerFunction?: (summaries: ContextSummary[]) => Promise<string>,
-    metaSummarizerFunction?: (hierarchies: HierarchicalSummary[]) => Promise<string>
+    llmApiCallback: (prompt: string, options?: any) => Promise<string>,
+    options: {
+      summaryTemplate?: string;
+      hierarchicalTemplate?: string;
+    } = {}
   ) {
     super();
-    this.summarizerFunction = summarizerFunction;
-    this.hierarchicalSummarizerFunction = hierarchicalSummarizerFunction;
-    this.metaSummarizerFunction = metaSummarizerFunction;
+    this.llmApiCallback = llmApiCallback;
+    
+    // Default or custom template for regular summarization
+    this.summaryTemplate = options.summaryTemplate || 
+      `Summarize the following conversation about {contextId}:\n\n{messages}\n\nSummary:`;
+    
+    // Default or custom template for hierarchical summarization
+    this.hierarchicalTemplate = options.hierarchicalTemplate ||
+      `Create a hierarchical summary for these related contexts:\n\n{summaries}\n\nHierarchical summary:`;
   }
   
   /**
-   * Generate summary using external AI model
+   * Generate summary using the LLM API
    * @param messages Array of messages to summarize
-   * @returns Summary text generated by the AI model
+   * @param contextId Context ID
+   * @returns Summary result
    */
-  protected async generateSummaryWithAI(messages: Message[]): Promise<string> {
-    return this.summarizerFunction(messages);
+  async summarize(messages: Message[], contextId: string): Promise<SummaryResult> {
+    try {
+      if (!messages || messages.length === 0) {
+        return { success: false, error: 'No messages to summarize' };
+      }
+      
+      // Format messages for the prompt
+      const formattedMessages = messages
+        .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+        .join('\n\n');
+      
+      // Create prompt from template
+      const prompt = this.summaryTemplate
+        .replace('{contextId}', contextId)
+        .replace('{messages}', formattedMessages);
+      
+      // 최대 3번까지 LLM API 호출 재시도
+      let summaryText: string | null = null;
+      let lastError: Error | null = null;
+      
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`Calling LLM API for summary (attempt ${attempt}/3)...`);
+          summaryText = await this.llmApiCallback(prompt);
+          
+          // 응답 검증
+          if (!summaryText || summaryText.trim().length === 0) {
+            console.warn(`LLM API returned empty summary on attempt ${attempt}`);
+            lastError = new Error('LLM API returned empty summary');
+            // 빈 응답일 경우 재시도
+            continue;
+          }
+          
+          // 응답이 너무 짧은 경우 검증
+          if (summaryText.trim().length < 10) {
+            console.warn(`LLM API returned too short summary on attempt ${attempt}: "${summaryText}"`);
+            lastError = new Error('LLM API returned too short summary');
+            // 짧은 응답일 경우 재시도
+            continue;
+          }
+          
+          // 유효한 응답을 받으면 성공
+          break;
+        } catch (apiError) {
+          console.warn(`API call failed on attempt ${attempt}:`, apiError);
+          lastError = apiError instanceof Error ? apiError : new Error(String(apiError));
+          
+          // 마지막 시도가 아닌 경우 짧은 대기 후 재시도
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+          }
+        }
+      }
+      
+      // 모든 시도가 실패한 경우
+      if (!summaryText) {
+        console.error(`All ${3} attempts to get summary from LLM API failed`);
+        
+        // 폴백 요약기 사용
+        const fallbackSummarizer = new SimpleTextSummarizer();
+        const fallbackResult = await fallbackSummarizer.summarize(messages, contextId);
+        
+        return { 
+          success: false, 
+          error: lastError?.message || 'LLM API failed to generate summary', 
+          fallback: fallbackResult.summary 
+        };
+      }
+      
+      // 성공했을 경우 요약 객체 생성
+      const summaryObject = this.createSummaryObject(contextId, summaryText, messages);
+      return { success: true, summary: summaryObject };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Error in custom AI summarization for context ${contextId}:`, errorMessage);
+      
+      // 폴백 요약기 사용
+      const fallbackSummarizer = new SimpleTextSummarizer();
+      const fallbackResult = await fallbackSummarizer.summarize(messages, contextId);
+      
+      return { 
+        success: false, 
+        error: errorMessage,
+        fallback: fallbackResult.summary
+      };
+    }
   }
   
   /**
-   * Generate hierarchical summary using external AI model
-   * @param summaries Array of context summaries
-   * @returns Summary text generated by the AI model
+   * Create hierarchical summary using the LLM API
+   * @param summaries Array of summaries to combine
+   * @param parentId Parent context ID
+   * @returns Hierarchical summary
    */
-  protected async generateHierarchicalSummaryWithAI(summaries: ContextSummary[]): Promise<string> {
-    if (this.hierarchicalSummarizerFunction) {
-      return this.hierarchicalSummarizerFunction(summaries);
+  async createHierarchicalSummary(
+    summaries: ContextSummary[],
+    parentId: string
+  ): Promise<HierarchicalSummary> {
+    try {
+      // 적어도 하나의 요약이 있어야 함
+      if (summaries.length === 0) {
+        throw new Error('Cannot create hierarchical summary: No summaries provided');
+      }
+      
+      const formattedSummaries = summaries
+        .map(s => `Context ${s.contextId} (${s.messageCount} messages):\n${s.summary}`)
+        .join('\n\n');
+      
+      // Create prompt from template
+      const prompt = this.hierarchicalTemplate
+        .replace('{summaries}', formattedSummaries);
+      
+      // Call LLM API
+      let hierarchySummary: string | null = null;
+      try {
+        hierarchySummary = await this.llmApiCallback(prompt);
+      } catch (apiError: unknown) {
+        console.warn('Error calling LLM API:', apiError);
+        const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
+        throw new Error(`LLM API call failed: ${errorMessage}`);
+      }
+      
+      // 응답 확인
+      if (!hierarchySummary || hierarchySummary.trim().length === 0) {
+        console.warn('LLM API returned empty hierarchical summary, falling back to simple summarizer');
+        throw new Error('LLM API returned empty hierarchical summary');
+      }
+      
+      // 너무 짧은 응답도 유효하지 않다고 간주
+      if (hierarchySummary.trim().length < 10) {
+        console.warn(`LLM API returned too short hierarchical summary: "${hierarchySummary}"`);
+        throw new Error('LLM API returned too short hierarchical summary');
+      }
+      
+      return this.createHierarchicalSummaryObject(parentId, hierarchySummary, summaries);
+    } catch (error) {
+      console.error('Error creating custom AI hierarchical summary:', error);
+      
+      // Fallback to simple hierarchical summary
+      console.log('Falling back to SimpleTextSummarizer for hierarchical summary');
+      const fallbackSummarizer = new SimpleTextSummarizer();
+      return await fallbackSummarizer.createHierarchicalSummary(summaries, parentId);
     }
-    
-    // Default fallback implementation
-    const combinedText = summaries
-      .map(s => `Context ${s.contextId}: ${s.summary}`)
-      .join('\n\n');
-    
-    return `Hierarchical summary for ${summaries.length} related contexts: ${combinedText.substring(0, 200)}...`;
-  }
-  
-  /**
-   * Generate meta-summary using external AI model
-   * @param hierarchies Array of hierarchical summaries
-   * @returns Summary text generated by the AI model
-   */
-  protected async generateMetaSummaryWithAI(hierarchies: HierarchicalSummary[]): Promise<string> {
-    if (this.metaSummarizerFunction) {
-      return this.metaSummarizerFunction(hierarchies);
-    }
-    
-    // Default fallback implementation
-    return `Meta-summary covering ${hierarchies.length} hierarchical contexts`;
   }
 } 

@@ -563,24 +563,51 @@ const DEFAULT_PORT = 6789; // 변경된 기본 포트
 const PORT = process.env.PORT || DEFAULT_PORT;
 
 // 서버를 시작하고 포트가 사용 중인 경우 다른 포트 시도
-const startServer = (port: number) => {
+const startServer = (port: number, maxRetries = 5, retryCount = 0) => {
   const server = app.listen(port)
     .on('listening', () => {
       console.log(`Prompt Context MCP Server running on port ${port}`);
+      
+      // 정상적인 종료 처리
+      process.on('SIGINT', () => {
+        console.log('Shutting down MCP server...');
+        server.close(() => {
+          console.log('MCP server closed');
+          process.exit(0);
+        });
+      });
+      
+      process.on('SIGTERM', () => {
+        console.log('Shutting down MCP server...');
+        server.close(() => {
+          console.log('MCP server closed');
+          process.exit(0);
+        });
+      });
     })
     .on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
-        console.log(`Port ${port} is already in use, trying another port...`);
-        // 기본 포트가 사용 중이면 랜덤 포트 시도 (8000-9000 범위 내)
-        const randomPort = Math.floor(Math.random() * 1000) + 8000;
-        startServer(randomPort);
+        if (retryCount < maxRetries) {
+          const nextPort = port + 1;
+          console.log(`Port ${port} is already in use, trying port ${nextPort}...`);
+          startServer(nextPort, maxRetries, retryCount + 1);
+        } else {
+          // 최대 재시도 횟수 초과 시 랜덤 포트 사용
+          const randomPort = Math.floor(Math.random() * 1000) + 8000;
+          console.log(`Failed to find available port after ${maxRetries} attempts, trying random port ${randomPort}...`);
+          startServer(randomPort, 1, 0); // 랜덤 포트도 실패하면 그냥 종료
+        }
       } else {
         console.error('Error starting server:', err);
+        process.exit(1);
       }
     });
+    
+  return server;
 };
 
-startServer(Number(PORT));
+// 서버 시작
+const server = startServer(Number(PORT));
 
 // Handle standard input for MCP integration
 process.stdin.setEncoding('utf8');

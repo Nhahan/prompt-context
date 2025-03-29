@@ -1,8 +1,9 @@
 import fs from 'fs-extra';
 import axios, { AxiosError } from 'axios';
+import path from 'path';
 import { VectorRepositoryInterface, createVectorRepository } from '../vector-repository';
 import { GraphRepositoryInterface, createGraphRepository, ContextEdge } from '../graph-repository';
-import { ContextRelationshipType, ContextSummary } from '../types';
+import { ContextRelationshipType, ContextSummary, SimilarContext } from '../types';
 import { KeywordMatchRepository } from '../keyword-match-repository';
 
 const TEST_DIR = './.test-vector-graph';
@@ -97,7 +98,7 @@ describe('Vector and Graph Repository Tests', () => {
     expect(results.length).toBeGreaterThan(0);
     
     // The test context should be in the results
-    const contextIds = results.map((result: { id: string }) => result.id);
+    const contextIds = results.map((result: SimilarContext) => result.contextId);
     expect(contextIds).toContain(testSummary.contextId);
   });
   
@@ -202,7 +203,7 @@ describe('Vector and Graph Repository Tests', () => {
       expect(results.length).toBeGreaterThan(0);
       
       // The main test context should be in the results
-      const contextIds = results.map((result: { id: string }) => result.id);
+      const contextIds = results.map((result: SimilarContext) => result.contextId);
       expect(contextIds).toContain(testSummary.contextId);
     } catch (error) {
       // If API is not running, test will be skipped
@@ -266,9 +267,9 @@ describe('Vector and Graph Repository Tests', () => {
     expect(results.length).toBeGreaterThan(0);
     
     // Results should contain contexts with "test" in their summary
-    const foundContext = results.some((result: { id: string }) => 
-      result.id === testSummary.contextId || 
-      result.id === relatedSummary.contextId
+    const foundContext = results.some((result: SimilarContext) => 
+      result.contextId === testSummary.contextId || 
+      result.contextId === relatedSummary.contextId
     );
     
     expect(foundContext).toBe(true);

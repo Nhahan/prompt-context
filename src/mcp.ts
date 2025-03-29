@@ -198,72 +198,97 @@ export class MemoryContextProtocol {
    * @returns Updated context data
    */
   async addMessage(contextId: string, message: Message): Promise<ContextData> {
-    const context = await this.getContext(contextId);
-    if (!context) {
-      throw new Error(`Failed to get or create context: ${contextId}`);
-    }
-    
-    // Analyze message importance if not already provided
-    if (this.config.hierarchicalContext && !message.importance && this.summarizer.analyzeMessageImportance) {
-      try {
-        message.importance = await this.summarizer.analyzeMessageImportance(message, contextId);
-      } catch (error) {
-        console.warn('Failed to analyze message importance:', error);
-        message.importance = ContextImportance.MEDIUM; // Default
+    try {
+      const context = await this.getContext(contextId);
+      if (!context) {
+        throw new Error(`Failed to get or create context: ${contextId}`);
       }
-    }
-    
-    // Estimate token count
-    const tokenCount = this.estimateTokenCount(message);
-    
-    // Add message and related information
-    context.messages.push(message);
-    context.tokenCount += tokenCount;
-    context.messagesSinceLastSummary += 1;
-    
-    // Check if summarization is needed if auto-summarize is enabled
-    if (this.config.autoSummarize && this.shouldSummarize(context)) {
-      await this.summarizeContext(contextId);
-    }
-    
-    // If we have vector and graph repositories enabled, look for semantic similarities
-    // and establish relationships
-    if (
-      this.config.useVectorDb && 
-      this.vectorRepository && 
-      context.messages.length >= 3 && 
-      context.hasSummary
-    ) {
-      const summary = await this.repository.loadSummary(contextId);
-      if (summary) {
-        // Add to vector index
-        await this.vectorRepository.addSummary(summary);
-        
-        // Find similar contexts
-        const similarContexts = await this.findSimilarContexts(message.content);
-        
-        // Add relationships for highly similar contexts
-        if (this.config.useGraphDb && this.graphRepository && similarContexts.length > 0) {
-          for (const similar of similarContexts) {
-            if (similar.id !== contextId && similar.score >= this.config.similarityThreshold) {
-              await this.addRelationship(
-                contextId,
-                similar.id,
-                ContextRelationshipType.SIMILAR,
-                similar.score
-              );
-            }
-          }
+      
+      // Analyze message importance if not already provided
+      if (this.config.hierarchicalContext && !message.importance && this.summarizer.analyzeMessageImportance) {
+        try {
+          message.importance = await this.summarizer.analyzeMessageImportance(message, contextId);
+        } catch (error) {
+          console.warn('Failed to analyze message importance:', error);
+          message.importance = ContextImportance.MEDIUM; // Default
         }
       }
+      
+      // Estimate token count
+      const tokenCount = this.estimateTokenCount(message);
+      
+      // Add message and related information
+      context.messages.push(message);
+      context.tokenCount += tokenCount;
+      context.messagesSinceLastSummary += 1;
+      
+      // Check if summarization is needed if auto-summarize is enabled
+      if (this.config.autoSummarize && this.shouldSummarize(context)) {
+        try {
+          await this.summarizeContext(contextId);
+        } catch (error) {
+          console.error(`Failed to auto-summarize context ${contextId}:`, error);
+          // Continue execution even if summarization fails
+        }
+      }
+      
+      // If we have vector and graph repositories enabled, look for semantic similarities
+      // and establish relationships
+      if (
+        this.config.useVectorDb && 
+        this.vectorRepository && 
+        context.messages.length >= 3 && 
+        context.hasSummary
+      ) {
+        try {
+          const summary = await this.repository.loadSummary(contextId);
+          if (summary) {
+            // Add to vector index
+            await this.vectorRepository.addSummary(summary);
+            
+            // Find similar contexts
+            const similarContexts = await this.findSimilarContexts(message.content);
+            
+            // Add relationships for highly similar contexts
+            if (this.config.useGraphDb && this.graphRepository && similarContexts.length > 0) {
+              for (const similar of similarContexts) {
+                if (similar.contextId !== contextId && similar.similarity >= this.config.similarityThreshold) {
+                  try {
+                    await this.addRelationship(
+                      contextId,
+                      similar.contextId,
+                      ContextRelationshipType.SIMILAR,
+                      similar.similarity
+                    );
+                  } catch (relationshipError) {
+                    console.error(`Failed to add relationship between ${contextId} and ${similar.contextId}:`, relationshipError);
+                    // Continue with other relationships
+                  }
+                }
+              }
+            }
+          }
+        } catch (vectorError) {
+          console.error(`Error processing vector relationships for ${contextId}:`, vectorError);
+          // Continue execution even if vector processing fails
+        }
+      }
+      
+      // Automatically clean up irrelevant contexts if enabled
+      if (this.config.autoCleanupContexts && context.messages.length % 10 === 0) {
+        try {
+          await this.cleanupIrrelevantContexts(contextId);
+        } catch (cleanupError) {
+          console.error(`Failed to clean up irrelevant contexts for ${contextId}:`, cleanupError);
+          // Continue execution even if cleanup fails
+        }
+      }
+      
+      return context;
+    } catch (error) {
+      console.error(`Error adding message to context ${contextId}:`, error);
+      throw error;
     }
-    
-    // Automatically clean up irrelevant contexts if enabled
-    if (this.config.autoCleanupContexts && context.messages.length % 10 === 0) {
-      await this.cleanupIrrelevantContexts(contextId);
-    }
-    
-    return context;
   }
   
   /**
@@ -303,6 +328,16 @@ export class MemoryContextProtocol {
     }
     
     try {
+      // Validate inputs
+      if (!sourceId || !targetId) {
+        throw new Error('Source and target IDs must be provided');
+      }
+      
+      if (strength < 0 || strength > 1) {
+        strength = Math.max(0, Math.min(1, strength)); // Clamp to valid range
+      }
+      
+      // Add relationship to graph repository
       await this.graphRepository.addRelationship(sourceId, targetId, type, strength, {
         createdAt: new Date().toISOString()
       });
@@ -346,6 +381,7 @@ export class MemoryContextProtocol {
       }
     } catch (error) {
       console.error(`Error adding relationship from ${sourceId} to ${targetId}:`, error);
+      throw error;
     }
   }
   
@@ -361,6 +397,11 @@ export class MemoryContextProtocol {
     }
     
     try {
+      // Validate inputs
+      if (!sourceId || !targetId) {
+        throw new Error('Source and target IDs must be provided');
+      }
+      
       return await this.graphRepository.findPath(sourceId, targetId);
     } catch (error) {
       console.error(`Error finding path from ${sourceId} to ${targetId}:`, error);
@@ -385,6 +426,11 @@ export class MemoryContextProtocol {
     }
     
     try {
+      // Validate inputs
+      if (!contextId) {
+        throw new Error('Context ID must be provided');
+      }
+      
       return await this.graphRepository.getRelatedContexts(contextId, type, direction);
     } catch (error) {
       console.error(`Error getting related contexts by type for ${contextId}:`, error);
@@ -403,79 +449,258 @@ export class MemoryContextProtocol {
     }
     
     try {
-      // Get current context
-      const context = await this.getContext(currentContextId, false);
-      if (!context || !context.hasSummary) return [];
+      // Get all context IDs
+      const allContextIds = await this.getAllContextIds();
+      if (allContextIds.length <= 10) {
+        // Don't clean up if there are only a few contexts
+        return [];
+      }
       
-      // Find contexts that are similar to current context
+      console.log(`Starting context cleanup process for ${currentContextId}. ${allContextIds.length} total contexts found.`);
+      
+      // Get summary for current context
       const currentSummary = await this.repository.loadSummary(currentContextId);
-      if (!currentSummary) return [];
+      if (!currentSummary) {
+        console.warn(`No summary found for current context ${currentContextId}, skipping cleanup`);
+        return [];
+      }
       
-      // Find similar contexts
-      const similarContexts = await this.findSimilarContexts(currentSummary.summary, 10);
+      // 1. 관련 컨텍스트 식별
+      // Create a set of relevant context IDs with preservation reasons
+      const relevantContexts = new Map<string, {
+        reason: string, 
+        importance: number
+      }>();
       
-      // Get all contexts
-      const allContextIds = await this.repository.getAllContextIds();
-      
-      // Filter out contexts that are:
-      // 1. Not the current context
-      // 2. Not related to the current context (based on vector similarity)
-      // 3. Not part of the current context's hierarchical structure
-      const relevantContextIds = new Set<string>([currentContextId]);
-      
-      // Add similar contexts to relevant set
-      similarContexts.forEach(similar => {
-        if (similar.score >= 0.3) { // Keep contexts with at least moderate similarity
-          relevantContextIds.add(similar.id);
-        }
+      // 현재 컨텍스트는 무조건 보존
+      relevantContexts.set(currentContextId, {
+        reason: 'current context',
+        importance: 1.0
       });
       
-      // Add directly related contexts
-      const relatedContexts = context.relatedContexts || [];
-      relatedContexts.forEach(id => relevantContextIds.add(id));
+      // 2. 유사한 컨텍스트 보존 (벡터 유사도 기반)
+      // Find similar contexts
+      const similarContexts = await this.findSimilarContexts(currentSummary.summary, 20);
       
-      // Add parent and children in hierarchy
-      if (context.parentContextId) {
-        relevantContextIds.add(context.parentContextId);
-        
-        // Add siblings (other children of the same parent)
-        const siblings = this.hierarchyMap.get(context.parentContextId) || [];
-        siblings.forEach(id => relevantContextIds.add(id));
+      // Add similar contexts with their similarity as importance
+      for (const similar of similarContexts) {
+        if (similar.similarity >= this.config.similarityThreshold * 0.5) { // 임계값의 절반 이상이면 유지
+          relevantContexts.set(similar.contextId, {
+            reason: 'semantic similarity',
+            importance: similar.similarity
+          });
+        }
       }
       
-      // Add children
-      const children = this.hierarchyMap.get(currentContextId) || [];
-      children.forEach(id => relevantContextIds.add(id));
+      // 3. 직접 관련된 컨텍스트 보존 (그래프 관계 기반)
+      if (this.config.useGraphDb && this.graphRepository) {
+        const relatedContexts = await this.getRelatedContexts(currentContextId);
+        
+        for (const id of relatedContexts) {
+          // 이미 포함된 컨텍스트의 중요도 증가
+          if (relevantContexts.has(id)) {
+            const existingEntry = relevantContexts.get(id);
+            if (existingEntry) {
+              existingEntry.importance = Math.min(1.0, existingEntry.importance + 0.2);
+              existingEntry.reason += ', explicit relationship';
+            }
+          } else {
+            relevantContexts.set(id, {
+              reason: 'explicit relationship',
+              importance: 0.7 // 직접 관계는 중요도 0.7 기본값
+            });
+          }
+        }
+        
+        // 추가: 양방향 관계 고려 (현재 컨텍스트를 참조하는 컨텍스트도 보존)
+        // 각 관계 타입에 대해 개별적으로 조회하여 결과 합치기
+        const incomingContextIds = new Set<string>();
+        
+        // 모든 관계 타입에 대해 조회
+        const relationshipTypes = [
+          ContextRelationshipType.SIMILAR,
+          ContextRelationshipType.CONTINUES,
+          ContextRelationshipType.REFERENCES,
+          ContextRelationshipType.PARENT,
+          ContextRelationshipType.CHILD
+        ];
+        
+        for (const relType of relationshipTypes) {
+          const contexts = await this.graphRepository.getRelatedContexts(
+            currentContextId,
+            relType,
+            'incoming'
+          );
+          
+          for (const id of contexts) {
+            incomingContextIds.add(id);
+          }
+        }
+        
+        // 결과 처리
+        for (const id of incomingContextIds) {
+          if (relevantContexts.has(id)) {
+            const existingEntry = relevantContexts.get(id);
+            if (existingEntry) {
+              existingEntry.importance = Math.min(1.0, existingEntry.importance + 0.2);
+              existingEntry.reason += ', references current';
+            }
+          } else {
+            relevantContexts.set(id, {
+              reason: 'references current context',
+              importance: 0.6
+            });
+          }
+        }
+      }
       
-      // Identify contexts to clean up
+      // 4. 계층 구조 보존
+      if (this.config.hierarchicalContext) {
+        // Add parent context
+        const parentId = await this.getParentContextId(currentContextId);
+        if (parentId) {
+          relevantContexts.set(parentId, {
+            reason: 'parent context',
+            importance: 0.8
+          });
+          
+          // Add siblings (other children of the same parent)
+          const siblings = this.hierarchyMap.get(parentId) || [];
+          for (const siblingId of siblings) {
+            if (!relevantContexts.has(siblingId)) {
+              relevantContexts.set(siblingId, {
+                reason: 'sibling context',
+                importance: 0.5
+              });
+            }
+          }
+        }
+        
+        // Add child contexts
+        const childIds = this.hierarchyMap.get(currentContextId) || [];
+        for (const childId of childIds) {
+          relevantContexts.set(childId, {
+            reason: 'child context',
+            importance: 0.7
+          });
+        }
+      }
+      
+      // 5. 중요도 기반 보존
+      // 각 컨텍스트의 중요도 점수를 기반으로 추가 보존
+      for (const contextId of allContextIds) {
+        if (relevantContexts.has(contextId)) continue; // 이미 처리된 컨텍스트는 건너뜀
+        
+        const summary = await this.repository.loadSummary(contextId);
+        if (summary && summary.importanceScore && summary.importanceScore >= 0.8) {
+          // 높은 중요도 점수를 가진 컨텍스트는 보존
+          relevantContexts.set(contextId, {
+            reason: 'high importance score',
+            importance: summary.importanceScore
+          });
+        }
+      }
+      
+      // 6. 최근 액세스된 컨텍스트 보존
+      const recentThreshold = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7일 이내
+      for (const contextId of allContextIds) {
+        if (relevantContexts.has(contextId)) continue; // 이미 처리된 컨텍스트는 건너뜀
+        
+        const context = await this.getContext(contextId, false);
+        const summary = await this.repository.loadSummary(contextId);
+        
+        // 최근에 업데이트된 요약이나 메시지가 있는 컨텍스트는 보존
+        if (
+          (summary && summary.lastUpdated > recentThreshold) || 
+          (context && context.lastSummarizedAt && context.lastSummarizedAt > recentThreshold)
+        ) {
+          relevantContexts.set(contextId, {
+            reason: 'recently active',
+            importance: 0.6
+          });
+        }
+      }
+      
+      // 7. 정리 대상 식별
+      const relevantContextIds = new Set(relevantContexts.keys());
       const contextsToCleanup = allContextIds.filter(id => !relevantContextIds.has(id));
       
-      // Perform cleanup
+      console.log(`Found ${relevantContextIds.size} relevant contexts to preserve and ${contextsToCleanup.length} candidates for cleanup`);
+      
+      // 8. 실제 정리 수행
       const cleanedContexts: string[] = [];
       for (const id of contextsToCleanup) {
-        // Remove from vector repository
-        if (this.vectorRepository) {
-          await this.vectorRepository.deleteContext(id);
+        try {
+          console.log(`Cleaning up context: ${id}`);
+          
+          // Remove from vector repository
+          if (this.vectorRepository) {
+            await this.vectorRepository.deleteContext(id);
+          }
+          
+          // Remove from graph repository
+          if (this.config.useGraphDb && this.graphRepository) {
+            await this.graphRepository.removeContext(id);
+          }
+          
+          // Remove from hierarchy map
+          this.hierarchyMap.delete(id);
+          
+          // Remove from contexts map
+          this.contexts.delete(id);
+          
+          // Delete summary from repository
+          await this.repository.deleteSummary(id);
+          
+          cleanedContexts.push(id);
+        } catch (cleanupError) {
+          console.error(`Error cleaning up context ${id}:`, cleanupError);
         }
-        
-        // Remove from graph repository
-        if (this.config.useGraphDb && this.graphRepository) {
-          await this.graphRepository.removeContext(id);
-        }
-        
-        // Remove from hierarchy map
-        this.hierarchyMap.delete(id);
-        
-        // Remove from contexts map
-        this.contexts.delete(id);
-        
-        cleanedContexts.push(id);
       }
       
+      console.log(`Successfully cleaned up ${cleanedContexts.length} irrelevant contexts`);
       return cleanedContexts;
     } catch (error) {
       console.error(`Error cleaning up irrelevant contexts:`, error);
       return [];
+    }
+  }
+  
+  /**
+   * Helper method to get parent context ID
+   * @param contextId Context ID
+   * @returns Parent context ID or undefined
+   */
+  private async getParentContextId(contextId: string): Promise<string | undefined> {
+    try {
+      const context = await this.getContext(contextId, false);
+      if (context && context.parentContextId) {
+        return context.parentContextId;
+      }
+      
+      // 백업: 계층적 요약에서 부모 ID 가져오기
+      const hierarchicalSummary = await this.repository.loadHierarchicalSummary(contextId);
+      if (hierarchicalSummary && hierarchicalSummary.parentContextId) {
+        return hierarchicalSummary.parentContextId;
+      }
+      
+      // 백업: 그래프 관계에서 부모 ID 가져오기
+      if (this.config.useGraphDb && this.graphRepository) {
+        const parents = await this.graphRepository.getRelatedContexts(
+          contextId,
+          ContextRelationshipType.PARENT,
+          'outgoing'
+        );
+        
+        if (parents.length > 0) {
+          return parents[0]; // 첫 번째 부모 반환
+        }
+      }
+      
+      return undefined;
+    } catch (error) {
+      console.error(`Error getting parent context ID for ${contextId}:`, error);
+      return undefined;
     }
   }
   

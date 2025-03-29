@@ -426,4 +426,32 @@ export class FileSystemRepository implements Repository {
     
     return this.ignoreInstance.ignores(relativePath);
   }
+
+  /**
+   * Delete summary 
+   * @param contextId Context ID
+   * @returns Whether the operation was successful
+   */
+  async deleteSummary(contextId: string): Promise<boolean> {
+    try {
+      const summaryPath = this.getSummaryPath(contextId);
+      
+      if (await fs.pathExists(summaryPath)) {
+        await fs.remove(summaryPath);
+        
+        // Also delete hierarchical summary if exists
+        const hierarchicalPath = this.getHierarchicalSummaryPath(contextId);
+        if (await fs.pathExists(hierarchicalPath)) {
+          await fs.remove(hierarchicalPath);
+        }
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`Error deleting summary for ${contextId}:`, error);
+      return false;
+    }
+  }
 } 

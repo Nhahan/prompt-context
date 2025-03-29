@@ -10,6 +10,7 @@ An MCP protocol that helps AI agents efficiently remember and utilize previous c
 - **Importance-Based Context Retention**: Automatically identifies and preserves important information
 - **Automatic Summarization**: Generates context summaries when message count reaches thresholds
 - **Context Relationship Tracking**: Connects related conversations using vector similarity and graph relationships to maintain knowledge context
+- **API Call Analytics**: Tracks and analyzes API calls to vector and graph databases and LLM services for performance monitoring and optimization
 
 ### Using with Claude Desktop
 
@@ -111,7 +112,7 @@ This allows more sophisticated context navigation and retrieval, such as:
 
 ```javascript
 // Add a relationship between contexts
-await fetch('http://localhost:3000/tools/context_memory', {
+await fetch('http://localhost:6789/tools/context_memory', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -124,7 +125,7 @@ await fetch('http://localhost:3000/tools/context_memory', {
 });
 
 // Find a path between contexts
-const response = await fetch('http://localhost:3000/tools/context_memory', {
+const response = await fetch('http://localhost:6789/tools/context_memory', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -141,7 +142,7 @@ MCP can automatically remove irrelevant contexts to maintain a focused and manag
 
 ```javascript
 // Trigger cleanup relative to the current context
-await fetch('http://localhost:3000/tools/context_memory', {
+await fetch('http://localhost:6789/tools/context_memory', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -191,6 +192,9 @@ The MCP server recognizes these configuration options:
 | `useGraphDb` | Enable graph-based context relationships | true |
 | `similarityThreshold` | Minimum similarity threshold for related contexts | 0.6 |
 | `autoCleanupContexts` | Enable automatic cleanup of irrelevant contexts | true |
+| `trackApiCalls` | Enable API call tracking and analytics | true |
+| `apiAnalyticsRetention` | Number of days to retain API call data | 30 |
+| `fallbackToKeywordMatch` | Whether to use keyword matching when vector search fails | true |
 
 The `tokenLimitPercentage` of 80% serves as a guideline rather than a rigid limit. The AI agent intelligently decides when to store context based on relevance and importance, while using this threshold to prevent context windows from becoming too large.
 

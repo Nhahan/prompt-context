@@ -10,6 +10,7 @@ AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용�
 - **중요도 기반 컨텍스트 유지**: 중요 정보를 자동으로 식별하고 보존
 - **자동 요약**: 메시지 수가 임계값에 도달하면 컨텍스트 요약 자동 생성
 - **컨텍스트 관계 추적**: 벡터 유사도와 그래프 관계로 연관된 대화를 연결하여 지식 맥락 유지
+- **API 호출 분석**: 벡터 및 그래프 데이터베이스와 LLM 서비스에 대한 API 호출을 추적하고 분석하여 성능 모니터링 및 최적화 지원
 
 ### Claude Desktop에서 사용하기
 
@@ -191,6 +192,26 @@ MCP 서버는 다음 구성 옵션을 인식합니다:
 | `useGraphDb` | 그래프 기반 컨텍스트 관계 활성화 | true |
 | `similarityThreshold` | 관련 컨텍스트의 최소 유사도 임계값 | 0.6 |
 | `autoCleanupContexts` | 관련 없는 컨텍스트의 자동 정리 활성화 | true |
+| `trackApiCalls` | API 호출 추적 및 분석 활성화 | true |
+| `apiAnalyticsRetention` | API 호출 데이터 보존 일수 | 30 |
+| `fallbackToKeywordMatch` | 벡터 검색 실패 시 키워드 매칭 사용 여부 | true |
+
+`tokenLimitPercentage`의 80%는 엄격한 제한이 아닌 가이드라인으로 사용됩니다. AI 에이전트는 관련성과 중요도를 기반으로 컨텍스트를 저장할 시기를 지능적으로 결정하면서 이 임계값을 사용하여 컨텍스트 창이 너무 커지는 것을 방지합니다.
+
+### .gitignore 통합
+
+`.gitignore` 파일에 정의된 패턴은 자동으로 로드되어 무시 패턴으로 사용됩니다. 또한 다음과 같은 기본 패턴이 적용됩니다:
+
+- node_modules
+- .git
+- dist
+- build
+- coverage
+- tmp
+- *.log
+- *.lock
+- *.min.*
+- *.map
 
 ## 팀 환경에서 MCP 사용하기
 

@@ -28,6 +28,10 @@ export interface MCPConfig {
   similarityThreshold: number;
   /** Whether to automatically clean up irrelevant contexts */
   autoCleanupContexts: boolean;
+  /** Whether to track API calls for analytics */
+  trackApiCalls?: boolean;
+  /** Number of days to retain API call data */
+  apiAnalyticsRetention?: number;
 }
 
 /**
@@ -158,9 +162,9 @@ export interface VectorContext {
  */
 export interface SimilarContext {
   /** Context ID */
-  id: string;
+  contextId: string;
   /** Similarity score (0-1) */
-  score: number;
+  similarity: number;
 }
 
 /**
@@ -215,6 +219,8 @@ export interface SummaryResult {
   summary?: ContextSummary;
   /** Error message */
   error?: string;
+  /** Fallback summary when primary summarization fails */
+  fallback?: ContextSummary;
 }
 
 /**

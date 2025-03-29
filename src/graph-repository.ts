@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { ContextSummary, ContextRelationshipType } from './types';
+import { ApiAnalytics, ApiCallType, apiAnalytics } from './analytics';
 
 /**
  * Represents an edge in the context graph
@@ -106,6 +107,7 @@ export class GraphRepository implements GraphRepositoryInterface {
           this.edges = [];
         }
       } else {
+        console.log('No existing graph found, creating a new one');
         this.edges = [];
       }
       
@@ -118,7 +120,9 @@ export class GraphRepository implements GraphRepositoryInterface {
       }
       
       this.initialized = true;
+      console.log(`Graph repository initialized with ${this.edges.length} edges`);
     } catch (error) {
+      console.error('Failed to initialize graph repository:', error);
       this.initialized = false;
       this.fallbackMode = true;
       throw error;
@@ -170,91 +174,128 @@ export class GraphRepository implements GraphRepositoryInterface {
     weight: number,
     metadata?: any
   ): Promise<void> {
-    await this.ensureInitialized();
-    
-    if (this.fallbackMode) return;
-    
+    const sourceId = source;
+    const targetId = target;
+
+    // Start API call tracking
+    const endTracking = apiAnalytics.trackCall(ApiCallType.GRAPH_DB_ADD, {
+      source: sourceId,
+      target: targetId,
+      type
+    });
+
     try {
-      // Don't allow self-loops
-      if (source === target) return;
+      // 초기화 확보
+      await this.ensureInitialized();
       
-      // Validate weight
-      const validWeight = Math.max(0, Math.min(1, weight));
+      // Make sure the weights are between 0 and 1
+      const normalizedWeight = Math.min(Math.max(weight, 0), 1);
       
-      // Check if relationship already exists
-      const existingEdgeIndex = this.edges.findIndex(edge => 
-        edge.source === source && 
-        edge.target === target && 
-        edge.type === type
+      console.log(`Adding relationship: ${sourceId} -> ${targetId}, type: ${type}, weight: ${normalizedWeight}`);
+      
+      // Create or update the edge
+      const existingEdgeIndex = this.edges.findIndex(
+        e => e.source === sourceId && e.target === targetId && e.type === type
       );
       
       if (existingEdgeIndex >= 0) {
-        // Update existing relationship
-        this.edges[existingEdgeIndex].weight = validWeight;
-        if (metadata) {
-          this.edges[existingEdgeIndex].metadata = metadata;
-        }
-      } else {
-        // Add new relationship
-        this.edges.push({
-          source,
-          target,
-          type,
-          weight: validWeight,
-          metadata
-        });
-        
-        // If adding a parent relationship, automatically add the corresponding child relationship
-        if (type === ContextRelationshipType.PARENT) {
-          await this.addRelationship(target, source, ContextRelationshipType.CHILD, validWeight, metadata);
-        }
-        // If adding a child relationship, automatically add the corresponding parent relationship
-        else if (type === ContextRelationshipType.CHILD) {
-          await this.addRelationship(target, source, ContextRelationshipType.PARENT, validWeight, metadata);
-        }
+        this.edges[existingEdgeIndex].weight = normalizedWeight;
+        this.edges[existingEdgeIndex].metadata = metadata;
+        console.log(`Updated existing relationship at index ${existingEdgeIndex}`);
+        await this.saveGraph();
+        endTracking(); // End tracking
+        return;
       }
       
-      // Save the updated graph
+      this.edges.push({
+        source: sourceId,
+        target: targetId,
+        type,
+        weight: normalizedWeight,
+        metadata
+      });
+      
+      console.log(`Added new relationship, total edges: ${this.edges.length}`);
       await this.saveGraph();
+      endTracking(); // End tracking
     } catch (error) {
-      console.error(`Error adding relationship from ${source} to ${target}:`, error);
+      console.error(`Error adding relationship ${sourceId} -> ${targetId}:`, error);
+      endTracking(); // End tracking even if an error occurs
+      throw error;
+    }
+    
+    // If we're creating a PARENT relationship, automatically create the inverse CHILD relationship
+    if (type === ContextRelationshipType.PARENT) {
+      await this.addRelationship(
+        targetId,
+        sourceId,
+        ContextRelationshipType.CHILD,
+        weight,
+        metadata
+      );
+    }
+    
+    // If we're creating a CHILD relationship, automatically create the inverse PARENT relationship
+    if (type === ContextRelationshipType.CHILD) {
+      await this.addRelationship(
+        targetId,
+        sourceId,
+        ContextRelationshipType.PARENT,
+        weight,
+        metadata
+      );
     }
   }
   
   /**
    * Get all relationships for a context
-   * @param contextId Context ID
-   * @returns Array of edges connected to the context
    */
-  public async getRelationships(contextId: string): Promise<ContextEdge[]> {
-    await this.ensureInitialized();
+  public async getRelationships(contextId: string, direction: 'incoming' | 'outgoing' | 'both' = 'both'): Promise<ContextEdge[]> {
+    // Start API call tracking
+    const endTracking = apiAnalytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, {
+      contextId,
+      direction
+    });
     
-    if (this.fallbackMode) return [];
-    
-    return this.edges.filter(edge => 
-      edge.source === contextId || edge.target === contextId
-    );
+    try {
+      let result: ContextEdge[] = [];
+      
+      if (direction === 'both' || direction === 'outgoing') {
+        result = [...result, ...this.edges.filter(e => e.source === contextId)];
+      }
+      
+      if (direction === 'both' || direction === 'incoming') {
+        result = [...result, ...this.edges.filter(e => e.target === contextId)];
+      }
+      
+      endTracking(); // End tracking
+      return result;
+    } catch (error) {
+      endTracking(); // End tracking
+      throw error;
+    }
   }
   
   /**
-   * Remove all relationships for a context
-   * @param contextId Context ID
+   * Remove a context and all its relationships
    */
   public async removeContext(contextId: string): Promise<void> {
-    await this.ensureInitialized();
-    
-    if (this.fallbackMode) return;
+    // Start API call tracking
+    const endTracking = apiAnalytics.trackCall(ApiCallType.GRAPH_DB_DELETE, {
+      contextId
+    });
     
     try {
-      // Remove all edges that involve this context
-      this.edges = this.edges.filter(edge => 
-        edge.source !== contextId && edge.target !== contextId
+      // Remove all edges where this context is either the source or target
+      this.edges = this.edges.filter(
+        edge => edge.source !== contextId && edge.target !== contextId
       );
       
-      // Save the updated graph
       await this.saveGraph();
+      endTracking(); // End tracking
     } catch (error) {
-      console.error(`Error removing context ${contextId} from graph:`, error);
+      endTracking(); // End tracking
+      throw error;
     }
   }
   
@@ -359,25 +400,68 @@ export class GraphRepository implements GraphRepositoryInterface {
   
   /**
    * Find a path between two contexts
-   * @param sourceId Source context ID
-   * @param targetId Target context ID
-   * @returns Array of context IDs forming a path, or empty array if no path exists
    */
   public async findPath(sourceId: string, targetId: string): Promise<string[]> {
-    await this.ensureInitialized();
-    
-    if (this.fallbackMode) return [];
-    
-    // If source and target are the same, return just that ID
-    if (sourceId === targetId) return [sourceId];
+    // Start API call tracking
+    const endTracking = apiAnalytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, {
+      sourceId,
+      targetId
+    });
     
     try {
-      // First try with graphology, if available
-      const path = await this.findPathWithGraphology(sourceId, targetId);
-      return path;
+      if (sourceId === targetId) {
+        endTracking(); // End tracking
+        return [sourceId];
+      }
+      
+      // Check if we have any edges at all
+      if (this.edges.length === 0) {
+        endTracking(); // End tracking
+        return [];
+      }
+      
+      // Try to use graphology for an efficient implementation if available
+      try {
+        // Import graphology and its algorithms dynamically
+        const { default: Graph } = await import('graphology');
+        const { bidirectional } = await import('graphology-shortest-path');
+        
+        // Create a graph from our edges
+        const graph = new Graph();
+        
+        // Add all unique nodes first
+        const nodes = new Set<string>();
+        this.edges.forEach(edge => {
+          nodes.add(edge.source);
+          nodes.add(edge.target);
+        });
+        
+        nodes.forEach(node => {
+          if (!graph.hasNode(node)) {
+            graph.addNode(node);
+          }
+        });
+        
+        // Add all edges
+        this.edges.forEach(edge => {
+          if (!graph.hasEdge(edge.source, edge.target)) {
+            graph.addEdge(edge.source, edge.target, { weight: 1 / edge.weight }); // Inverse weight so higher weights = shorter paths
+          }
+        });
+        
+        // Find the shortest path
+        const path = bidirectional(graph, sourceId, targetId);
+        endTracking(); // End tracking
+        return path || [];
+      } catch (error) {
+        // Fall back to our basic implementation if graphology is not available
+        const path = await this.findPathBasic(sourceId, targetId);
+        endTracking(); // End tracking
+        return path;
+      }
     } catch (error) {
-      console.warn('Error in findPath, falling back to basic algorithm:', error);
-      return this.findPathBasic(sourceId, targetId);
+      endTracking(); // End tracking
+      throw error;
     }
   }
   
@@ -393,30 +477,54 @@ export class GraphRepository implements GraphRepositoryInterface {
     type: ContextRelationshipType, 
     direction: 'outgoing' | 'incoming' | 'both' = 'both'
   ): Promise<string[]> {
-    await this.ensureInitialized();
-    
-    if (this.fallbackMode) return [];
-    
-    const relatedContexts = new Set<string>();
-    
-    // Filter edges by direction and type
-    this.edges.forEach(edge => {
-      if (edge.type !== type) return;
-      
-      if (direction === 'outgoing' || direction === 'both') {
-        if (edge.source === contextId) {
-          relatedContexts.add(edge.target);
-        }
-      }
-      
-      if (direction === 'incoming' || direction === 'both') {
-        if (edge.target === contextId) {
-          relatedContexts.add(edge.source);
-        }
-      }
+    // API 호출 추적 시작
+    const endTracking = apiAnalytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, {
+      contextId,
+      relationshipType: type,
+      direction,
+      operation: 'getRelatedContexts'
     });
     
-    return Array.from(relatedContexts);
+    try {
+      await this.ensureInitialized();
+      
+      if (this.fallbackMode) {
+        console.warn(`getRelatedContexts: Running in fallback mode for ${contextId}`);
+        endTracking(); // 추적 종료
+        return [];
+      }
+      
+      console.log(`Getting related contexts for ${contextId}, type: ${type}, direction: ${direction}, edges: ${this.edges.length}`);
+      
+      const relatedContexts = new Set<string>();
+      
+      // Filter edges by direction and type
+      this.edges.forEach(edge => {
+        if (edge.type !== type) return;
+        
+        if (direction === 'outgoing' || direction === 'both') {
+          if (edge.source === contextId) {
+            relatedContexts.add(edge.target);
+          }
+        }
+        
+        if (direction === 'incoming' || direction === 'both') {
+          if (edge.target === contextId) {
+            relatedContexts.add(edge.source);
+          }
+        }
+      });
+      
+      const results = Array.from(relatedContexts);
+      console.log(`Found ${results.length} related contexts for ${contextId}`);
+      
+      endTracking(); // 추적 종료
+      return results;
+    } catch (error) {
+      console.error(`Error in getRelatedContexts for ${contextId}:`, error);
+      endTracking(); // 추적 종료
+      return [];
+    }
   }
   
   /**

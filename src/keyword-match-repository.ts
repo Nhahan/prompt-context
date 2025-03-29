@@ -109,14 +109,14 @@ export class KeywordMatchRepository implements VectorRepositoryInterface {
     const similarities: SimilarContext[] = [];
     
     for (const [contextId, { terms }] of this.summaries.entries()) {
-      const score = this.calculateSimilarity(queryTerms, terms);
-      if (score > 0) {
-        similarities.push({ id: contextId, score });
+      const similarity = this.calculateSimilarity(queryTerms, terms);
+      if (similarity > 0) {
+        similarities.push({ contextId, similarity });
       }
     }
     
     // Sort by similarity score descending
-    similarities.sort((a, b) => b.score - a.score);
+    similarities.sort((a, b) => b.similarity - a.similarity);
     
     // Return top results
     return similarities.slice(0, limit);

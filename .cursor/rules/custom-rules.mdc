@@ -6,12 +6,12 @@ alwaysApply: true
 
 # custom rules
 
-- Remove unnecessary imports.
+- This project implements an MCP Server—a server that uses the standardized Model Context Protocol (MCP) to enable LLMs to communicate seamlessly with external data sources and tools.
 
-- The basic README.md and comments should be written in English.
+- Always check and remove unnecessary imports.
 
-- When modifying the README, always create an identical Korean version (`README_KOR.md`) separately.
+- The basic `README.md` and **code comments** should be written in English.
 
-- Do not deploy until instructed to do so.
+- When modifying the `README.md`, always create an identical Korean version (`README_KOR.md`) separately.
 
-- Do not commit arbitrarily.
+- Do not deploy until instructed to do so, and do not commit arbitrarily.
