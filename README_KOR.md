@@ -2,7 +2,7 @@
 
 AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용할 수 있도록 돕는 MCP 프로토콜입니다. 이 프로토콜은 각 파일 또는 맥락의 대화 기록을 추적하고 주기적으로 요약하여 저장함으로써 AI 에이전트의 맥락 이해도를 향상시킵니다.
 
-*Read this in [English](README.md)*
+> *Read this in [English](README.md)*
 
 ## 주요 기능
 
@@ -12,9 +12,9 @@ AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용�
 - **컨텍스트 관계 추적**: 벡터 유사도와 그래프 관계로 연관된 대화를 연결하여 지식 맥락 유지
 - **API 호출 분석**: 벡터 및 그래프 데이터베이스와 LLM 서비스에 대한 API 호출을 추적하고 분석하여 성능 모니터링 및 최적화 지원
 
-### Claude Desktop에서 사용하기
+## 사용법
 
-`claude_desktop_config.json`에 다음을 추가하세요:
+### NPX 설치
 
 ```json
 {
@@ -30,7 +30,11 @@ AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용�
 }
 ```
 
-### Docker에서 사용하기
+### Docker
+
+```bash
+docker build -t prompt-context .
+```
 
 ```json
 {
@@ -48,9 +52,9 @@ AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용�
 }
 ```
 
-### 사용 가능한 MCP 도구
+## MCP 도구
 
-#### context_memory
+### context_memory
 
 AI 에이전트가 다양한 파일이나 주제에 대한 대화 컨텍스트를 유지하고 검색할 수 있게 합니다.
 
@@ -69,94 +73,12 @@ AI 에이전트가 다양한 파일이나 주제에 대한 대화 컨텍스트�
 - `relationshipType` (string, 'add_relationship' 작업용): 관계 유형('similar', 'continues', 'references', 'parent', 'child')
 - `strength` (number, 'add_relationship' 작업용): 관계 강도(0-1)
 
-## 고급 기능
+## 문서
 
-### 벡터 유사도 검색
+더 자세한 정보는 `docs` 디렉토리의 문서를 참조하세요:
 
-MCP는 의미적으로 유사한 컨텍스트를 찾기 위해 벡터 임베딩을 사용하여 AI 에이전트가 다음을 수행할 수 있도록 합니다:
-
-- 다른 표현을 사용하더라도 유사한 주제를 논의하는 컨텍스트 찾기
-- 대화 간의 관계를 자동으로 감지
-- 더 일관된 지식 구조 생성
-- 관련 없는 컨텍스트를 정리하여 집중력 유지
-
-유사도 검색 사용 예:
-
-```javascript
-// 쿼리와 유사한 컨텍스트 찾기
-const response = await fetch('http://localhost:6789/similar?text=machine learning&limit=5');
-const { similarContexts } = await response.json();
-```
-
-또는 MCP 도구를 통해:
-
-```json
-{
-  "action": "find_similar",
-  "contextId": "current-context",
-  "searchText": "transformer models for natural language processing",
-  "limit": 5
-}
-```
-
-### 그래프 기반 관계
-
-MCP는 다양한 관계 유형을 가진 컨텍스트 관계의 그래프 구조를 유지합니다:
-
-- **similar**: 유사한 주제를 논의하는 컨텍스트
-- **continues**: 하나의 컨텍스트가 다른 컨텍스트의 주제를 계속 이어가는 경우
-- **references**: 하나의 컨텍스트가 다른 컨텍스트를 명시적으로 참조하는 경우
-- **parent/child**: 컨텍스트 간의 계층적 관계
-
-이를 통해 다음과 같은 더 정교한 컨텍스트 탐색 및 검색이 가능합니다:
-
-```javascript
-// 컨텍스트 간 관계 추가
-await fetch('http://localhost:6789/tools/context_memory', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    action: 'add_relationship',
-    contextId: 'context-1',
-    targetId: 'context-2',
-    relationshipType: 'similar',
-    strength: 0.8
-  })
-});
-
-// 컨텍스트 간 경로 찾기
-const response = await fetch('http://localhost:6789/tools/context_memory', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    action: 'find_path',
-    contextId: 'context-1',
-    targetId: 'context-3'
-  })
-});
-```
-
-### 자동 컨텍스트 정리
-
-MCP는 관련 없는 컨텍스트를 자동으로 제거하여 집중적이고 관리 가능한 컨텍스트 공간을 유지할 수 있습니다:
-
-```javascript
-// 현재 컨텍스트에 대한 정리 트리거
-await fetch('http://localhost:6789/tools/context_memory', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    action: 'cleanup',
-    contextId: 'current-context'
-  })
-});
-```
-
-정리 프로세스:
-1. 현재 대화와 관련된 컨텍스트 식별
-2. 높은 유사성이나 명시적인 관계가 있는 컨텍스트 보존
-3. 부모-자식 관계를 보존하여 계층 구조 유지
-4. 관련 없거나 더 이상 관련이 없는 컨텍스트 제거
+- [작동 방식](docs/HOW_IT_WORKS_KOR.md) - 시스템 아키텍처 및 기술 선택에 대한 자세한 설명
+- [기여 가이드](docs/CONTRIBUTING.md) - 프로젝트 기여에 관한 지침
 
 ## 구성
 
@@ -196,23 +118,6 @@ MCP 서버는 다음 구성 옵션을 인식합니다:
 | `apiAnalyticsRetention` | API 호출 데이터 보존 일수 | 30 |
 | `fallbackToKeywordMatch` | 벡터 검색 실패 시 키워드 매칭 사용 여부 | true |
 
-`tokenLimitPercentage`의 80%는 엄격한 제한이 아닌 가이드라인으로 사용됩니다. AI 에이전트는 관련성과 중요도를 기반으로 컨텍스트를 저장할 시기를 지능적으로 결정하면서 이 임계값을 사용하여 컨텍스트 창이 너무 커지는 것을 방지합니다.
-
-### .gitignore 통합
-
-`.gitignore` 파일에 정의된 패턴은 자동으로 로드되어 무시 패턴으로 사용됩니다. 또한 다음과 같은 기본 패턴이 적용됩니다:
-
-- node_modules
-- .git
-- dist
-- build
-- coverage
-- tmp
-- *.log
-- *.lock
-- *.min.*
-- *.map
-
 ## 팀 환경에서 MCP 사용하기
 
 팀 환경에서 MCP를 사용할 때는 컨텍스트 데이터가 어떻게 관리되는지 고려하는 것이 중요합니다:
@@ -232,16 +137,6 @@ MCP 서버는 다음 구성 옵션을 인식합니다:
 # MCP
 .prompt-context/
 ```
-
-### 팀 간 컨텍스트 공유
-
-특정 컨텍스트를 팀 전체에서 공유해야 하는 경우 다음을 고려하세요:
-
-1. 중요한 요약을 명시적으로 내보내어 공유
-2. 팀을 위한 공유 MCP 서버 설정
-3. 공유 컨텍스트를 위한 데이터베이스 백엔드 사용(향후 업데이트 예정)
-
-이 접근 방식은 각 팀원이 개인 대화 컨텍스트를 유지하면서 필요할 때 중요한 컨텍스트 정보를 공유할 수 있도록 합니다.
 
 ## 라이선스
 
