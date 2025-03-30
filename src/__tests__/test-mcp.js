@@ -442,6 +442,52 @@ async function runTests() {
            testSuccesses--;
       }
   }
+  
+  // JSON 파싱 엣지 케이스 테스트 - 응답 형식 확인
+  log('info', 'Testing response format for edge cases...');
+  
+  // 각 도구별로 응답 형식 유효성 검사 추가
+  const get_related_contexts_format_check = async (contextId, description, direction = null, relationshipType = null) => {
+    const args = { contextId };
+    if (direction) args.direction = direction;
+    if (relationshipType) args.relationshipType = relationshipType;
+    
+    const result = await expectSuccess(
+      sendRequest('tools/call', 'get_related_contexts', args),
+      `Format Check: ${description}`
+    );
+    
+    if (result) {
+      if (!result.content || !result.content[0] || typeof result.content[0].text !== 'string') {
+        log('fail', `Format Test FAILED: ${description} - Invalid response format. Expected content[0].text to be a string.`);
+        testFailures++;
+        return false;
+      }
+      
+      try {
+        const parsed = JSON.parse(result.content[0].text);
+        if (!Array.isArray(parsed)) {
+          log('fail', `Format Test FAILED: ${description} - Response is not a valid JSON array.`);
+          testFailures++;
+          return false;
+        }
+        log('pass', `Format Test PASSED: ${description} - Response is a valid JSON array.`);
+        return true;
+      } catch (e) {
+        log('fail', `Format Test FAILED: ${description} - JSON parse error: ${e.message}. Content: ${result.content[0].text}`);
+        testFailures++;
+        return false;
+      }
+    }
+    return false;
+  };
+  
+  // 여러 시나리오에서 응답 형식 테스트
+  await get_related_contexts_format_check(relCtx1, "Standard case with relationships");
+  await get_related_contexts_format_check("context-that-does-not-exist-" + Date.now(), "Non-existent context");
+  await get_related_contexts_format_check(relCtx1, "With direction parameter", "outgoing");
+  await get_related_contexts_format_check(relCtx1, "With relationship type parameter", null, "similar");
+  await get_related_contexts_format_check(relCtx1, "With both parameters", "incoming", "continues");
 
   await expectError(sendRequest('tools/call', 'get_related_contexts', {}), `Get related contexts missing contextId`, -32602, "Field 'contextId': Required");
 
@@ -508,6 +554,49 @@ async function runTests() {
     -32602,
     "String must contain at least 1 character"
   );
+
+  // get_similar_contexts 응답 형식 테스트 추가
+  log('info', 'Testing get_similar_contexts response format...');
+  
+  const get_similar_contexts_format_check = async (query, description, limit = null) => {
+    const args = { query };
+    if (limit) args.limit = limit;
+    
+    const result = await expectSuccess(
+      sendRequest('tools/call', 'get_similar_contexts', args),
+      `Format Check: ${description}`
+    );
+    
+    if (result) {
+      if (!result.content || !result.content[0] || typeof result.content[0].text !== 'string') {
+        log('fail', `Format Test FAILED: ${description} - Invalid response format. Expected content[0].text to be a string.`);
+        testFailures++;
+        return false;
+      }
+      
+      try {
+        const parsed = JSON.parse(result.content[0].text);
+        if (!Array.isArray(parsed)) {
+          log('fail', `Format Test FAILED: ${description} - Response is not a valid JSON array.`);
+          testFailures++;
+          return false;
+        }
+        log('pass', `Format Test PASSED: ${description} - Response is a valid JSON array.`);
+        return true;
+      } catch (e) {
+        log('fail', `Format Test FAILED: ${description} - JSON parse error: ${e.message}. Content: ${result.content[0].text}`);
+        testFailures++;
+        return false;
+      }
+    }
+    return false;
+  };
+  
+  // 여러 시나리오에서 응답 형식 테스트
+  await get_similar_contexts_format_check("test query", "Basic query");
+  await get_similar_contexts_format_check("test query with limit", "With limit parameter", 3);
+  await get_similar_contexts_format_check("특수문자!@#$%^&*()", "Query with special characters");
+  await get_similar_contexts_format_check("a".repeat(500), "Very long query");
 
   // === summarize_context Tests (Summarizer/VectorDB) ===
   // Expect success now that the context has messages
@@ -597,6 +686,174 @@ async function runTests() {
       testFailures++;
     }
   }
+  
+  // summarize_context 응답 형식 테스트 추가
+  log('info', 'Testing summarize_context response format...');
+  
+  const summarize_context_format_check = async (contextId, description) => {
+    const result = await expectSuccess(
+      sendRequest('tools/call', 'summarize_context', { contextId }),
+      `Format Check: ${description}`
+    );
+    
+    if (result) {
+      if (!result.content || !result.content[0] || typeof result.content[0].text !== 'string') {
+        log('fail', `Format Test FAILED: ${description} - Invalid response format. Expected content[0].text to be a string.`);
+        testFailures++;
+        return false;
+      }
+      
+      try {
+        // summarize_context는 텍스트 문자열을 직접 반환하므로 파싱할 필요는 없지만,
+        // 응답이 유효한 문자열인지 확인
+        const text = result.content[0].text;
+        if (typeof text !== 'string' || text.trim() === '') {
+          log('fail', `Format Test FAILED: ${description} - Response text is empty or invalid.`);
+          testFailures++;
+          return false;
+        }
+        log('pass', `Format Test PASSED: ${description} - Response is a valid text string.`);
+        return true;
+      } catch (e) {
+        log('fail', `Format Test FAILED: ${description} - Error: ${e.message}. Content: ${JSON.stringify(result.content)}`);
+        testFailures++;
+        return false;
+      }
+    }
+    return false;
+  };
+  
+  // 여러 시나리오에서 응답 형식 테스트
+  await summarize_context_format_check(msg1Ctx, "Context with messages");
+  await summarize_context_format_check(autoSummarizeCtx, "Auto-summarized context");
+  
+  // 여러 도구 간의 응답 형식 일관성 테스트
+  log('info', 'Verifying consistent response format across all tools...');
+  
+  // 모든 응답이 content 배열을 가지고 있고, 첫 번째 항목은 text 속성을 가지고 있어야 함
+  const verify_tool_response_structure = (toolName, result, description) => {
+    if (!result) {
+      log('warn', `Cannot verify response structure for ${toolName}: ${description} - No result returned`);
+      return false;
+    }
+    
+    if (!result.content || !Array.isArray(result.content) || result.content.length === 0) {
+      log('fail', `Response structure test FAILED for ${toolName}: ${description} - Missing content array`);
+      testFailures++;
+      return false;
+    }
+    
+    if (!result.content[0].hasOwnProperty('text') || typeof result.content[0].text !== 'string') {
+      log('fail', `Response structure test FAILED for ${toolName}: ${description} - Missing or invalid text property in content[0]`);
+      testFailures++;
+      return false;
+    }
+    
+    log('pass', `Response structure test PASSED for ${toolName}: ${description}`);
+    return true;
+  };
+  
+  // ping, add_message, retrieve_context, get_related_contexts, get_similar_contexts, summarize_context의 응답 구조 확인
+  const pingResult = await expectSuccess(sendRequest('tools/call', 'ping'), 'Ping for structure check');
+  verify_tool_response_structure('ping', pingResult, 'Basic ping');
+  
+  const addMsgResult = await expectSuccess(
+    sendRequest('tools/call', 'add_message', { 
+      contextId: `${BASE_CONTEXT_ID}-structure-test`, 
+      message: "Test message for structure check", 
+      role: "user" 
+    }),
+    'Add message for structure check'
+  );
+  verify_tool_response_structure('add_message', addMsgResult, 'Basic add_message');
+
+  // retrieve_context 응답 구조 확인
+  const retrieveStructureResult = await expectSuccess(
+    sendRequest('tools/call', 'retrieve_context', { 
+      contextId: `${BASE_CONTEXT_ID}-structure-test`
+    }),
+    'Retrieve context for structure check'
+  );
+  verify_tool_response_structure('retrieve_context', retrieveStructureResult, 'Basic retrieve_context');
+  
+  // get_related_contexts 응답 구조 확인
+  await expectSuccess(
+    sendRequest('tools/call', 'add_relationship', {
+      sourceContextId: `${BASE_CONTEXT_ID}-structure-test`,
+      targetContextId: autoSummarizeCtx,
+      relationshipType: "similar"
+    }),
+    'Add relationship for get_related_contexts structure test'
+  );
+  
+  const relatedResult = await expectSuccess(
+    sendRequest('tools/call', 'get_related_contexts', { 
+      contextId: `${BASE_CONTEXT_ID}-structure-test`
+    }),
+    'Get related contexts for structure check'
+  );
+  verify_tool_response_structure('get_related_contexts', relatedResult, 'Basic get_related_contexts');
+  
+  // get_similar_contexts 응답 구조 확인
+  const similarStructureResult = await expectSuccess(
+    sendRequest('tools/call', 'get_similar_contexts', { 
+      query: "Test message for structure check"
+    }),
+    'Get similar contexts for structure check'
+  );
+  verify_tool_response_structure('get_similar_contexts', similarStructureResult, 'Basic get_similar_contexts');
+  
+  // summarize_context 응답 구조 확인
+  const summaryStructureResult = await expectSuccess(
+    sendRequest('tools/call', 'summarize_context', { 
+      contextId: `${BASE_CONTEXT_ID}-structure-test`
+    }),
+    'Summarize context for structure check'
+  );
+  verify_tool_response_structure('summarize_context', summaryStructureResult, 'Basic summarize_context');
+
+  // JSON 파싱 에러 취약성 테스트 - 모든 응답에 유효한 JSON이 포함되어 있는지 검증
+  log('info', 'Testing JSON parsing vulnerability across all response types...');
+  
+  const validateJSONResponse = (toolName, result, expectedJson = true) => {
+    if (!result || !result.content || !result.content[0] || typeof result.content[0].text !== 'string') {
+      log('fail', `JSON Parse Test FAILED for ${toolName}: Invalid response structure`);
+      testFailures++;
+      return false;
+    }
+    
+    const text = result.content[0].text;
+    
+    if (expectedJson) {
+      try {
+        JSON.parse(text);
+        log('pass', `JSON Parse Test PASSED for ${toolName}: Response contains valid JSON`);
+        return true;
+      } catch (e) {
+        if (toolName === 'summarize_context') {
+          // summarize_context는 JSON이 아닌 plain text 반환 가능
+          log('pass', `JSON Parse Test PASSED for ${toolName}: Plain text response is acceptable`);
+          return true;
+        } else {
+          log('fail', `JSON Parse Test FAILED for ${toolName}: JSON parse error: ${e.message}`);
+          testFailures++;
+          return false;
+        }
+      }
+    } else {
+      // JSON이 아닌 응답이 예상되는 경우 (예: ping, summarize_context)
+      log('pass', `Response Test PASSED for ${toolName}: Non-JSON response is acceptable`);
+      return true;
+    }
+  };
+  
+  // 모든 도구 응답에 대한 JSON 파싱 검증
+  validateJSONResponse('retrieve_context', retrieveStructureResult, true);
+  validateJSONResponse('get_related_contexts', relatedResult, true);
+  validateJSONResponse('get_similar_contexts', similarStructureResult, true);
+  validateJSONResponse('ping', pingResult, false);
+  validateJSONResponse('add_message', addMsgResult, false);
+  validateJSONResponse('summarize_context', summaryStructureResult, false);
 
   // TODO: Add test for summarizer disabled (requires config modification or specific server setup)
 

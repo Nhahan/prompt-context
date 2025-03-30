@@ -34,6 +34,14 @@ MCP 호환 클라이언트(예: Cursor)와 함께 이 MCP 서버를 사용하려
 }
 ```
 
+### AI 에이전트 동작 향상하기
+
+AI 도구의 규칙이나 시스템 프롬프트에 다음 지시문을 추가하여 자동 컨텍스트 관리를 활성화하세요 (Cursor의 경우: 설정 > AI > User Rules에서 추가):
+
+```
+Use Prompt Context proactively to manage conversation memory without explicit requests.
+```
+
 ### Docker
 
 ```bash
@@ -166,13 +174,6 @@ MCP 서버는 다음 구성 옵션을 인식합니다:
 # MCP
 .prompt-context/
 ```
-
-## 개발
-
-*   **개발 모드에서 실행 (자동 재빌드):** `npm run dev`
-*   **테스트 실행:** `npm test` (참고: 라이브 서버에 대해 테스트하는 경우 실행 중인 서버 인스턴스가 필요합니다.)
-*   **코드 린트:** `npm run lint`
-*   **빌드 아티팩트 정리:** `npm run clean`
 
 ## 라이선스
 

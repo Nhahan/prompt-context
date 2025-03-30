@@ -14,7 +14,7 @@ export enum ApiCallType {
   GRAPH_DB_DELETE = 'graph_db_delete',
   LLM_SUMMARIZE = 'llm_summarize',
   LLM_HIERARCHICAL_SUMMARIZE = 'llm_hierarchical_summarize',
-  LLM_META_SUMMARIZE = 'llm_meta_summarize'
+  LLM_META_SUMMARIZE = 'llm_meta_summarize',
 }
 
 /**
@@ -44,7 +44,7 @@ export class ApiAnalytics {
   private calls: ApiCallInfo[] = [];
   private callsByType: Map<ApiCallType, number> = new Map();
   private durationByType: Map<ApiCallType, number[]> = new Map();
-  
+
   /**
    * Returns singleton instance
    */
@@ -54,7 +54,7 @@ export class ApiAnalytics {
     }
     return ApiAnalytics.instance;
   }
-  
+
   /**
    * Tracks API call
    * @param type API call type
@@ -66,21 +66,21 @@ export class ApiAnalytics {
     const call: ApiCallInfo = {
       type,
       timestamp: startTime,
-      metadata
+      metadata,
     };
-    
+
     this.calls.push(call);
-    
+
     // Update call count by type
     const currentCount = this.callsByType.get(type) || 0;
     this.callsByType.set(type, currentCount + 1);
-    
+
     // Return function to execute when call ends
     return () => {
       const endTime = Date.now();
       const duration = endTime - startTime;
       call.duration = duration;
-      
+
       // Record duration by type
       if (!this.durationByType.has(type)) {
         this.durationByType.set(type, []);
@@ -88,7 +88,7 @@ export class ApiAnalytics {
       this.durationByType.get(type)!.push(duration);
     };
   }
-  
+
   /**
    * Returns call count for specific API call type
    * @param type API call type
@@ -97,7 +97,7 @@ export class ApiAnalytics {
   public getCallCount(type: ApiCallType): number {
     return this.callsByType.get(type) || 0;
   }
-  
+
   /**
    * Returns call counts for all API call types
    * @returns Call counts by type
@@ -109,7 +109,7 @@ export class ApiAnalytics {
     }
     return result;
   }
-  
+
   /**
    * Returns API call statistics
    * @returns API statistics
@@ -117,11 +117,11 @@ export class ApiAnalytics {
   public getStats(): ApiStats {
     const callsByType: Record<ApiCallType, number> = {} as Record<ApiCallType, number>;
     const averageDuration: Record<ApiCallType, number> = {} as Record<ApiCallType, number>;
-    
+
     // Set default values for all ApiCallTypes
-    Object.values(ApiCallType).forEach(type => {
+    Object.values(ApiCallType).forEach((type) => {
       callsByType[type] = this.callsByType.get(type as ApiCallType) || 0;
-      
+
       const durations = this.durationByType.get(type as ApiCallType) || [];
       if (durations.length > 0) {
         const totalDuration = durations.reduce((sum, d) => sum + d, 0);
@@ -130,14 +130,14 @@ export class ApiAnalytics {
         averageDuration[type] = 0;
       }
     });
-    
+
     return {
       totalCalls: this.calls.length,
       callsByType,
-      averageDuration
+      averageDuration,
     };
   }
-  
+
   /**
    * Filters API call information within a specific time range
    * @param startTime Start time (milliseconds)
@@ -145,11 +145,9 @@ export class ApiAnalytics {
    * @returns Filtered call information
    */
   public getCallsInTimeRange(startTime: number, endTime: number): ApiCallInfo[] {
-    return this.calls.filter(call => 
-      call.timestamp >= startTime && call.timestamp <= endTime
-    );
+    return this.calls.filter((call) => call.timestamp >= startTime && call.timestamp <= endTime);
   }
-  
+
   /**
    * Reset all statistics
    */
@@ -161,4 +159,4 @@ export class ApiAnalytics {
 }
 
 // Export singleton instance for convenience
-export const apiAnalytics = ApiAnalytics.getInstance(); 
+export const apiAnalytics = ApiAnalytics.getInstance();

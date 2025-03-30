@@ -34,6 +34,14 @@ To use this MCP server with compatible clients (like Cursor), add the following 
 }
 ```
 
+### Enhancing AI Agent Behavior
+
+Add this instruction to your AI tool's rules or system prompts (for Cursor: go to Settings > AI > User Rules) to enable automatic context management:
+
+```
+Use Prompt Context proactively to manage conversation memory without explicit requests.
+```
+
 ### Docker
 
 ```bash
@@ -166,13 +174,6 @@ Add the following to your project's `.gitignore` file:
 # MCP
 .prompt-context/
 ```
-
-## Development
-
-*   **Run in development mode (with auto-rebuild):** `npm run dev`
-*   **Run tests:** `npm test` (Note: requires a running server instance if testing against a live server)
-*   **Lint code:** `npm run lint`
-*   **Clean build artifacts:** `npm run clean`
 
 ## License
 

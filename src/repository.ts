@@ -1,6 +1,14 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { ContextSummary, MCPConfig, Repository, HierarchicalSummary, MetaSummary, Message, ContextData } from './types';
+import {
+  ContextSummary,
+  MCPConfig,
+  Repository,
+  HierarchicalSummary,
+  MetaSummary,
+  Message,
+  ContextData,
+} from './types';
 import { VectorRepository } from './vector-repository';
 import { GraphRepository } from './graph-repository';
 
@@ -35,7 +43,7 @@ export class FileSystemRepository implements Repository {
    */
   constructor(config: Omit<MCPConfig, 'ignorePatterns'>) {
     this.config = config;
-    
+
     // Create context directory
     this.ensureContextDirectory();
   }
@@ -46,7 +54,7 @@ export class FileSystemRepository implements Repository {
   private ensureContextDirectory(): void {
     const contextDir = this.config.contextDir;
     fs.ensureDirSync(contextDir);
-    
+
     if (this.config.hierarchicalContext) {
       fs.ensureDirSync(path.join(contextDir, 'hierarchical-summaries'));
       fs.ensureDirSync(path.join(contextDir, 'meta-summaries'));
@@ -60,10 +68,7 @@ export class FileSystemRepository implements Repository {
    */
   private getSummaryPath(contextId: string): string {
     const sanitizedId = contextId.replace(/[\/\\:*?"<>|]/g, '_');
-    return path.join(
-      this.config.contextDir,
-      `${sanitizedId}.summary.json`
-    );
+    return path.join(this.config.contextDir, `${sanitizedId}.summary.json`);
   }
 
   /**
@@ -74,7 +79,7 @@ export class FileSystemRepository implements Repository {
   private getHierarchicalSummaryPath(contextId: string): string {
     const hierarchicalDir = path.join(this.config.contextDir, 'hierarchical-summaries');
     fs.ensureDirSync(hierarchicalDir);
-    
+
     return path.join(hierarchicalDir, `${contextId}.hierarchical.json`);
   }
 
@@ -86,7 +91,7 @@ export class FileSystemRepository implements Repository {
   private getMetaSummaryPath(id: string): string {
     const metaDir = path.join(this.config.contextDir, 'meta-summaries');
     fs.ensureDirSync(metaDir);
-    
+
     return path.join(metaDir, `${id}.meta.json`);
   }
 
@@ -106,10 +111,7 @@ export class FileSystemRepository implements Repository {
    */
   private getMetadataPath(contextId: string): string {
     const sanitizedId = contextId.replace(/[\/\\:*?"<>|]/g, '_');
-    return path.join(
-      this.config.contextDir,
-      `${sanitizedId}.metadata.json`
-    );
+    return path.join(this.config.contextDir, `${sanitizedId}.metadata.json`);
   }
 
   /**
@@ -128,7 +130,7 @@ export class FileSystemRepository implements Repository {
    */
   async loadSummary(contextId: string): Promise<ContextSummary | undefined> {
     const summaryPath = this.getSummaryPath(contextId);
-    
+
     try {
       if (await fs.pathExists(summaryPath)) {
         return await fs.readJson(summaryPath);
@@ -136,7 +138,7 @@ export class FileSystemRepository implements Repository {
     } catch (error) {
       console.error(`Error loading summary for ${contextId}:`, error);
     }
-    
+
     return undefined;
   }
 
@@ -146,7 +148,7 @@ export class FileSystemRepository implements Repository {
    */
   async saveHierarchicalSummary(summary: HierarchicalSummary): Promise<void> {
     if (!this.config.hierarchicalContext) return;
-    
+
     const summaryPath = this.getHierarchicalSummaryPath(summary.contextId);
     await fs.writeJson(summaryPath, summary, { spaces: 2 });
   }
@@ -158,9 +160,9 @@ export class FileSystemRepository implements Repository {
    */
   async loadHierarchicalSummary(contextId: string): Promise<HierarchicalSummary | undefined> {
     if (!this.config.hierarchicalContext) return undefined;
-    
+
     const summaryPath = this.getHierarchicalSummaryPath(contextId);
-    
+
     try {
       if (await fs.pathExists(summaryPath)) {
         return await fs.readJson(summaryPath);
@@ -168,7 +170,7 @@ export class FileSystemRepository implements Repository {
     } catch (error) {
       console.error(`Error loading hierarchical summary for ${contextId}:`, error);
     }
-    
+
     return undefined;
   }
 
@@ -178,7 +180,7 @@ export class FileSystemRepository implements Repository {
    */
   async saveMetaSummary(summary: MetaSummary): Promise<void> {
     if (!this.config.hierarchicalContext) return;
-    
+
     const summaryPath = this.getMetaSummaryPath(summary.id);
     await fs.writeJson(summaryPath, summary, { spaces: 2 });
   }
@@ -190,9 +192,9 @@ export class FileSystemRepository implements Repository {
    */
   async loadMetaSummary(id: string): Promise<MetaSummary | undefined> {
     if (!this.config.hierarchicalContext) return undefined;
-    
+
     const summaryPath = this.getMetaSummaryPath(id);
-    
+
     try {
       if (await fs.pathExists(summaryPath)) {
         return await fs.readJson(summaryPath);
@@ -200,7 +202,7 @@ export class FileSystemRepository implements Repository {
     } catch (error) {
       console.error(`Error loading meta-summary ${id}:`, error);
     }
-    
+
     return undefined;
   }
 
@@ -214,7 +216,7 @@ export class FileSystemRepository implements Repository {
     if (!summary || !summary.relatedContexts) {
       return [];
     }
-    
+
     return summary.relatedContexts;
   }
 
@@ -225,10 +227,10 @@ export class FileSystemRepository implements Repository {
   async getAllContextIds(): Promise<string[]> {
     const contextDir = this.config.contextDir;
     const files = await fs.readdir(contextDir);
-    
+
     return files
-      .filter(file => file.endsWith('.summary.json'))
-      .map(file => file.replace(/\.summary\.json$/, ''));
+      .filter((file) => file.endsWith('.summary.json'))
+      .map((file) => file.replace(/\.summary\.json$/, ''));
   }
 
   /**
@@ -237,19 +239,19 @@ export class FileSystemRepository implements Repository {
    */
   async getAllHierarchicalContextIds(): Promise<string[]> {
     if (!this.config.hierarchicalContext) return [];
-    
+
     const hierarchicalDir = path.join(this.config.contextDir, 'hierarchical-summaries');
-    
+
     try {
-      if (!await fs.pathExists(hierarchicalDir)) {
+      if (!(await fs.pathExists(hierarchicalDir))) {
         return [];
       }
-      
+
       const files = await fs.readdir(hierarchicalDir);
-      
+
       return files
-        .filter(file => file.endsWith('.hierarchical.json'))
-        .map(file => file.replace(/\.hierarchical\.json$/, ''));
+        .filter((file) => file.endsWith('.hierarchical.json'))
+        .map((file) => file.replace(/\.hierarchical\.json$/, ''));
     } catch (error) {
       console.error('Error getting hierarchical contexts:', error);
       return [];
@@ -262,19 +264,19 @@ export class FileSystemRepository implements Repository {
    */
   async getAllMetaSummaryIds(): Promise<string[]> {
     if (!this.config.hierarchicalContext) return [];
-    
+
     const metaDir = path.join(this.config.contextDir, 'meta-summaries');
-    
+
     try {
-      if (!await fs.pathExists(metaDir)) {
+      if (!(await fs.pathExists(metaDir))) {
         return [];
       }
-      
+
       const files = await fs.readdir(metaDir);
-      
+
       return files
-        .filter(file => file.endsWith('.meta.json'))
-        .map(file => file.replace(/\.meta\.json$/, ''));
+        .filter((file) => file.endsWith('.meta.json'))
+        .map((file) => file.replace(/\.meta\.json$/, ''));
     } catch (error) {
       console.error('Error getting meta-summary IDs:', error);
       return [];
@@ -282,26 +284,26 @@ export class FileSystemRepository implements Repository {
   }
 
   /**
-   * Delete summary 
+   * Delete summary
    * @param contextId Context ID
    * @returns Whether the operation was successful
    */
   async deleteSummary(contextId: string): Promise<boolean> {
     try {
       const summaryPath = this.getSummaryPath(contextId);
-      
+
       if (await fs.pathExists(summaryPath)) {
         await fs.remove(summaryPath);
-        
+
         // Also delete hierarchical summary if exists
         const hierarchicalPath = this.getHierarchicalSummaryPath(contextId);
         if (await fs.pathExists(hierarchicalPath)) {
           await fs.remove(hierarchicalPath);
         }
-        
+
         return true;
       }
-      
+
       return false;
     } catch (error) {
       console.error(`Error deleting summary for ${contextId}:`, error);
@@ -328,29 +330,28 @@ export class FileSystemRepository implements Repository {
       await fs.ensureDir(path.dirname(metadataPath));
 
       let metadata: ContextMetadata | undefined;
-      await fs.ensureFile(metadataPath); 
+      await fs.ensureFile(metadataPath);
       metadata = await this.loadContextData(contextId);
 
       if (!metadata) {
-           metadata = {
-             contextId,
-             createdAt: Date.now(),
-             lastActivityAt: Date.now(),
-             messagesSinceLastSummary: 0
-           };
-           await this.saveContextData(contextId, metadata); 
+        metadata = {
+          contextId,
+          createdAt: Date.now(),
+          lastActivityAt: Date.now(),
+          messagesSinceLastSummary: 0,
+        };
+        await this.saveContextData(contextId, metadata);
       }
 
       metadata.lastActivityAt = Date.now();
 
-      await fs.ensureFile(messagesPath); 
+      await fs.ensureFile(messagesPath);
       await fs.appendFile(messagesPath, messageLine);
 
       await this.saveContextData(contextId, metadata);
-
     } catch (error: unknown) {
-        console.error(`[FileSystemRepository] Error adding message to ${contextId}:`, error);
-        throw new Error(`Failed to add message to ${contextId}: ${(error as Error).message}`);
+      console.error(`[FileSystemRepository] Error adding message to ${contextId}:`, error);
+      throw new Error(`Failed to add message to ${contextId}: ${(error as Error).message}`);
     }
   }
 
@@ -374,7 +375,10 @@ export class FileSystemRepository implements Repository {
           try {
             messages.push(JSON.parse(line));
           } catch (parseError: unknown) {
-            console.error(`[FileSystemRepository] Error parsing message line for ${contextId}: ${line}`, parseError);
+            console.error(
+              `[FileSystemRepository] Error parsing message line for ${contextId}: ${line}`,
+              parseError
+            );
             // Optionally skip corrupted lines or throw an error
           }
         }
@@ -400,7 +404,9 @@ export class FileSystemRepository implements Repository {
       // Read the file content first to check if it's empty
       const content = await fs.readFile(metadataPath, 'utf-8');
       if (content.trim() === '') {
-        console.warn(`[FileSystemRepository] Metadata file for ${contextId} is empty. Treating as non-existent.`);
+        console.warn(
+          `[FileSystemRepository] Metadata file for ${contextId} is empty. Treating as non-existent.`
+        );
         // Optionally, delete the empty file?
         // await fs.remove(metadataPath);
         return undefined; // Empty file, treat as non-existent
@@ -410,13 +416,19 @@ export class FileSystemRepository implements Repository {
     } catch (error: unknown) {
       // Handle JSON parsing errors specifically
       if (error instanceof SyntaxError) {
-        console.error(`[FileSystemRepository] Error parsing JSON in metadata file ${metadataPath}:`, error);
+        console.error(
+          `[FileSystemRepository] Error parsing JSON in metadata file ${metadataPath}:`,
+          error
+        );
         // Decide how to handle corrupted metadata (e.g., delete, backup, return undefined)
         // For now, return undefined to indicate failure to load valid metadata
         return undefined;
       } else {
         // Handle other file system errors
-        console.error(`[FileSystemRepository] Error loading metadata for ${contextId} from ${metadataPath}:`, error);
+        console.error(
+          `[FileSystemRepository] Error loading metadata for ${contextId} from ${metadataPath}:`,
+          error
+        );
         return undefined;
       }
     }
@@ -431,8 +443,8 @@ export class FileSystemRepository implements Repository {
       await fs.ensureDir(path.dirname(metadataPath));
       await fs.writeJson(metadataPath, metadata, { spaces: 2 });
     } catch (error: unknown) {
-        console.error(`[FileSystemRepository] Error saving metadata for ${contextId}:`, error);
-        throw new Error(`Failed to save metadata for ${contextId}: ${(error as Error).message}`);
+      console.error(`[FileSystemRepository] Error saving metadata for ${contextId}:`, error);
+      throw new Error(`Failed to save metadata for ${contextId}: ${(error as Error).message}`);
     }
   }
 
@@ -441,78 +453,80 @@ export class FileSystemRepository implements Repository {
    * Ensure return type matches the imported ContextData from types.ts
    */
   async loadContext(contextId: string): Promise<ContextData | undefined> {
-      const metadata = await this.loadContextData(contextId);
-      if (!metadata) {
-          return undefined; 
-      }
+    const metadata = await this.loadContextData(contextId);
+    if (!metadata) {
+      return undefined;
+    }
 
-      const messages = await this.loadMessages(contextId);
-      const summary = await this.loadSummary(contextId);
+    const messages = await this.loadMessages(contextId);
+    const summary = await this.loadSummary(contextId);
 
-      // Construct the object matching the imported ContextData type from types.ts
-      // Make sure all required fields from types.ts->ContextData are present
-      const contextData: ContextData = {
-          contextId: metadata.contextId, // Get from metadata
-          metadata, 
-          messages,
-          summary: summary || null,
-          // Add other properties required by ContextData from types.ts, using metadata values
-          messagesSinceLastSummary: metadata.messagesSinceLastSummary || 0,
-          hasSummary: metadata.hasSummary || false,
-          lastSummarizedAt: metadata.lastSummarizedAt,
-          // tokenCount, importanceScore, relatedContexts, parentContextId are optional or potentially derived elsewhere
-          // Initialize them as undefined or with default values if appropriate based on types.ts definition
-          tokenCount: undefined, // Placeholder - calculate if needed 
-          importanceScore: metadata.importanceScore, // Assuming importanceScore might be in metadata
-          relatedContexts: metadata.relatedContexts, // Assuming relatedContexts might be in metadata
-          parentContextId: metadata.parentContextId, // Assuming parentContextId might be in metadata
-      };
-      
-      // Type check: Ensure the constructed object satisfies the imported ContextData interface
-      const check: ContextData = contextData;
+    // Construct the object matching the imported ContextData type from types.ts
+    // Make sure all required fields from types.ts->ContextData are present
+    const contextData: ContextData = {
+      contextId: metadata.contextId, // Get from metadata
+      metadata,
+      messages,
+      summary: summary || null,
+      // Add other properties required by ContextData from types.ts, using metadata values
+      messagesSinceLastSummary: metadata.messagesSinceLastSummary || 0,
+      hasSummary: metadata.hasSummary || false,
+      lastSummarizedAt: metadata.lastSummarizedAt,
+      // tokenCount, importanceScore, relatedContexts, parentContextId are optional or potentially derived elsewhere
+      // Initialize them as undefined or with default values if appropriate based on types.ts definition
+      tokenCount: undefined, // Placeholder - calculate if needed
+      importanceScore: metadata.importanceScore, // Assuming importanceScore might be in metadata
+      relatedContexts: metadata.relatedContexts, // Assuming relatedContexts might be in metadata
+      parentContextId: metadata.parentContextId, // Assuming parentContextId might be in metadata
+    };
 
-      return contextData;
+    // Type check: Ensure the constructed object satisfies the imported ContextData interface
+    const check: ContextData = contextData;
+
+    return contextData;
   }
 
   /**
    * Delete all data associated with a context (metadata, messages, summaries)
    */
-   async deleteContext(contextId: string): Promise<boolean> {
-        const metadataPath = this.getMetadataPath(contextId);
-        const messagesPath = this.getMessagesPath(contextId);
-        const summaryPath = this.getSummaryPath(contextId);
-        const hierarchicalPath = this.getHierarchicalSummaryPath(contextId);
+  async deleteContext(contextId: string): Promise<boolean> {
+    const metadataPath = this.getMetadataPath(contextId);
+    const messagesPath = this.getMessagesPath(contextId);
+    const summaryPath = this.getSummaryPath(contextId);
+    const hierarchicalPath = this.getHierarchicalSummaryPath(contextId);
 
-        let deletedSomething = false;
-        const errors: Error[] = [];
+    let deletedSomething = false;
+    const errors: Error[] = [];
 
-        for (const filePath of [metadataPath, messagesPath, summaryPath, hierarchicalPath]) {
-            try {
-                if (await fs.pathExists(filePath)) {
-                    await fs.remove(filePath);
-                    console.log(`[FileSystemRepository] Deleted file: ${filePath}`);
-                    deletedSomething = true;
-                }
-            } catch (error: unknown) {
-                console.error(`[FileSystemRepository] Error deleting file ${filePath}:`, error);
-                errors.push(error as Error);
-            }
+    for (const filePath of [metadataPath, messagesPath, summaryPath, hierarchicalPath]) {
+      try {
+        if (await fs.pathExists(filePath)) {
+          await fs.remove(filePath);
+          console.log(`[FileSystemRepository] Deleted file: ${filePath}`);
+          deletedSomething = true;
         }
+      } catch (error: unknown) {
+        console.error(`[FileSystemRepository] Error deleting file ${filePath}:`, error);
+        errors.push(error as Error);
+      }
+    }
 
-        if (errors.length > 0) {
-            console.error(`[FileSystemRepository] Encountered ${errors.length} error(s) during context deletion for ${contextId}.`);
-        }
+    if (errors.length > 0) {
+      console.error(
+        `[FileSystemRepository] Encountered ${errors.length} error(s) during context deletion for ${contextId}.`
+      );
+    }
 
-        return deletedSomething;
-   }
+    return deletedSomething;
+  }
 }
 
 function getBasePathFromConfig(config: MCPConfig): string {
-    const defaultPath = path.join(process.cwd(), config.contextDir || '.prompt-context');
-    if (!fs.existsSync(defaultPath)) {
-        fs.mkdirSync(defaultPath, { recursive: true });
-    }
-    return defaultPath;
+  const defaultPath = path.join(process.cwd(), config.contextDir || '.prompt-context');
+  if (!fs.existsSync(defaultPath)) {
+    fs.mkdirSync(defaultPath, { recursive: true });
+  }
+  return defaultPath;
 }
 
 export async function initializeRepositories(config: MCPConfig): Promise<Repositories> {
@@ -532,16 +546,16 @@ export async function initializeRepositories(config: MCPConfig): Promise<Reposit
     try {
       // Pass the directory path and dimensions
       vectorRepo = new VectorRepository(
-          vectorDataDir, 
-          config.vectorDb?.dimensions // Pass optional dimension (defaults to 384 in constructor)
+        vectorDataDir,
+        config.vectorDb?.dimensions // Pass optional dimension (defaults to 384 in constructor)
       );
       console.error('[REPO INIT] VectorRepository instantiated.');
     } catch (err) {
-       console.error('[REPO INIT] Failed to instantiate VectorRepository:', err);
-       vectorRepo = undefined;
+      console.error('[REPO INIT] Failed to instantiate VectorRepository:', err);
+      vectorRepo = undefined;
     }
   } else {
-     console.error('[REPO INIT] VectorRepository instantiation skipped (useVectorDb=false).');
+    console.error('[REPO INIT] VectorRepository instantiation skipped (useVectorDb=false).');
   }
 
   let graphRepo: GraphRepository | undefined = undefined;
@@ -549,22 +563,22 @@ export async function initializeRepositories(config: MCPConfig): Promise<Reposit
 
   if (config.useGraphDb) {
     console.error('[REPO INIT] Initializing GraphRepository...');
-     try {
+    try {
       // Pass the file path string to the constructor
       graphRepo = new GraphRepository(graphDbPath);
       console.error('[REPO INIT] GraphRepository instantiated with path:', graphDbPath);
     } catch (err) {
-       console.error('[REPO INIT] Failed to instantiate GraphRepository:', err);
-       graphRepo = undefined;
+      console.error('[REPO INIT] Failed to instantiate GraphRepository:', err);
+      graphRepo = undefined;
     }
   } else {
-     console.error('[REPO INIT] GraphRepository instantiation skipped (useGraphDb=false).');
+    console.error('[REPO INIT] GraphRepository instantiation skipped (useGraphDb=false).');
   }
 
   console.error('[REPO INIT] Repository initialization complete.');
   return {
     fs: fsRepo,
     vector: vectorRepo,
-    graph: graphRepo
+    graph: graphRepo,
   };
-} 
+}

@@ -49,7 +49,7 @@ export enum ContextImportance {
   LOW = 0.25,
   MEDIUM = 0.5,
   HIGH = 0.75,
-  CRITICAL = 1.0
+  CRITICAL = 1.0,
 }
 
 /**
@@ -60,7 +60,7 @@ export enum ContextRelationshipType {
   CONTINUES = 'continues',
   REFERENCES = 'references',
   PARENT = 'parent',
-  CHILD = 'child'
+  CHILD = 'child',
 }
 
 /**
@@ -75,7 +75,7 @@ export enum ApiCallType {
   GRAPH_DB_DELETE = 'graph_db_delete',
   LLM_SUMMARIZE = 'llm_summarize',
   LLM_HIERARCHICAL_SUMMARIZE = 'llm_hierarchical_summarize',
-  LLM_META_SUMMARIZE = 'llm_meta_summarize'
+  LLM_META_SUMMARIZE = 'llm_meta_summarize',
 }
 
 /**
@@ -263,7 +263,7 @@ export interface VectorRepositoryInterface {
    * @param summary Summary to add or update
    */
   addSummary(summary: ContextSummary): Promise<void>;
-  
+
   /**
    * Find contexts similar to the given text
    * @param text Text to find similar contexts for
@@ -271,13 +271,13 @@ export interface VectorRepositoryInterface {
    * @returns Array of context IDs with similarity scores
    */
   findSimilarContexts(text: string, limit?: number): Promise<SimilarContext[]>;
-  
+
   /**
    * Delete a context from the vector index
    * @param contextId Context ID to delete
    */
   deleteContext(contextId: string): Promise<void>;
-  
+
   /**
    * Check if a context exists in the vector index
    * @param contextId Context ID to check
@@ -297,21 +297,27 @@ export interface GraphRepositoryInterface {
    * @param weight Relationship weight/strength (0-1)
    * @param metadata Additional metadata
    */
-  addRelationship(source: string, target: string, type: ContextRelationshipType, weight: number, metadata?: any): Promise<void>;
-  
+  addRelationship(
+    source: string,
+    target: string,
+    type: ContextRelationshipType,
+    weight: number,
+    metadata?: any
+  ): Promise<void>;
+
   /**
    * Get all relationships for a context
    * @param contextId Context ID
    * @returns Array of edges connected to the context
    */
   getRelationships(contextId: string): Promise<ContextRelationship[]>;
-  
+
   /**
    * Remove all relationships for a context
    * @param contextId Context ID
    */
   removeContext(contextId: string): Promise<void>;
-  
+
   /**
    * Find a path between two contexts
    * @param sourceId Source context ID
@@ -319,7 +325,7 @@ export interface GraphRepositoryInterface {
    * @returns Array of context IDs forming a path, or empty array if no path exists
    */
   findPath(sourceId: string, targetId: string): Promise<string[]>;
-  
+
   /**
    * Get all contexts that have a specific relationship with the given context
    * @param contextId Context ID
@@ -327,36 +333,43 @@ export interface GraphRepositoryInterface {
    * @param direction 'outgoing' for edges where contextId is the source, 'incoming' for edges where contextId is the target, 'both' for both directions
    * @returns Array of context IDs
    */
-  getRelatedContexts(contextId: string, type: ContextRelationshipType, direction: 'outgoing' | 'incoming' | 'both'): Promise<string[]>;
+  getRelatedContexts(
+    contextId: string,
+    type: ContextRelationshipType,
+    direction: 'outgoing' | 'incoming' | 'both'
+  ): Promise<string[]>;
 }
 
 /**
  * AI summarization service interface
  */
 export interface SummarizerService {
-  /** 
+  /**
    * Generate context summary
    * @param messages Array of messages to summarize
    * @param contextId Context identifier
    * @returns Summarization result
    */
   summarize(messages: Message[], contextId: string): Promise<SummaryResult>;
-  
+
   /**
    * Generate hierarchical summary from multiple context summaries
    * @param summaries Array of context summaries to consolidate
    * @param parentId Identifier for the parent context
    * @returns Hierarchical summary result
    */
-  createHierarchicalSummary?(summaries: ContextSummary[], parentId: string): Promise<HierarchicalSummary>;
-  
+  createHierarchicalSummary?(
+    summaries: ContextSummary[],
+    parentId: string
+  ): Promise<HierarchicalSummary>;
+
   /**
    * Create a meta-summary across all contexts
    * @param contexts Array of context IDs to include
    * @returns Meta-summary result
    */
   createMetaSummary?(contexts: string[]): Promise<MetaSummary>;
-  
+
   /**
    * Analyze message importance
    * @param message Message to analyze
@@ -429,12 +442,12 @@ export const DEFAULT_CONFIG: MCPConfig = {
   port: 6789, // Default HTTP port
   vectorDb: {
     dimensions: 1536, // Example default dimension (e.g., text-embedding-ada-002)
-    maxElements: 10000
+    maxElements: 10000,
   },
   summarizer: {
     // Default summarizer settings can go here
-    maxOutputTokens: 256
-  }
+    maxOutputTokens: 256,
+  },
 };
 
 // Function to get the repository path (might depend on config.contextDir)
@@ -484,41 +497,70 @@ import { ContextMetadata } from './repository';
 
 // Zod Schemas for MCP Tool Inputs
 
-export const pingSchema = z.object({}).describe("No arguments needed for ping.");
+export const pingSchema = z.object({}).describe('No arguments needed for ping.');
 
 export const addMessageSchema = z.object({
-  contextId: z.string().min(1).describe("Unique identifier for the context"),
-  message: z.string().min(1).describe("Message content to add"),
-  role: z.enum(["user", "assistant"]).describe("Role of the message sender"),
-  importance: z.nativeEnum(ContextImportance).optional().default(ContextImportance.MEDIUM).describe("Importance level (default: medium)"),
-  tags: z.array(z.string()).optional().default([]).describe("Tags associated with the message (optional)"),
+  contextId: z.string().min(1).describe('Unique identifier for the context'),
+  message: z.string().min(1).describe('Message content to add'),
+  role: z.enum(['user', 'assistant']).describe('Role of the message sender'),
+  importance: z
+    .nativeEnum(ContextImportance)
+    .optional()
+    .default(ContextImportance.MEDIUM)
+    .describe('Importance level (default: medium)'),
+  tags: z
+    .array(z.string())
+    .optional()
+    .default([])
+    .describe('Tags associated with the message (optional)'),
 });
 
 export const retrieveContextSchema = z.object({
-  contextId: z.string().min(1).describe("Unique identifier for the context to retrieve"),
+  contextId: z.string().min(1).describe('Unique identifier for the context to retrieve'),
 });
 
 // Schema for finding similar contexts - maps to SimilarContext interface for output, but input needs query/limit
 export const similarContextSchema = z.object({
-  query: z.string().min(1).describe("Text to find similar contexts for"),
-  limit: z.number().int().min(1).optional().default(5).describe("Maximum number of contexts to return (default: 5)"),
+  query: z.string().min(1).describe('Text to find similar contexts for'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .default(5)
+    .describe('Maximum number of contexts to return (default: 5)'),
 });
 
 export const addRelationshipSchema = z.object({
-  sourceContextId: z.string().min(1).describe("Source context ID"),
-  targetContextId: z.string().min(1).describe("Target context ID"),
-  relationshipType: z.nativeEnum(ContextRelationshipType).describe("Type of relationship (similar, continues, references, parent, child)"),
-  weight: z.number().min(0).max(1).optional().default(0.8).describe("Weight of the relationship (0.0 to 1.0, default: 0.8)"),
+  sourceContextId: z.string().min(1).describe('Source context ID'),
+  targetContextId: z.string().min(1).describe('Target context ID'),
+  relationshipType: z
+    .nativeEnum(ContextRelationshipType)
+    .describe('Type of relationship (similar, continues, references, parent, child)'),
+  weight: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .default(0.8)
+    .describe('Weight of the relationship (0.0 to 1.0, default: 0.8)'),
 });
 
 export const getRelatedContextsSchema = z.object({
-  contextId: z.string().min(1).describe("Context ID to find related contexts for"),
-  relationshipType: z.nativeEnum(ContextRelationshipType).optional().describe("Optional: filter by relationship type"),
-  direction: z.enum(["incoming", "outgoing", "both"]).optional().default("both").describe("Direction of relationships to get (default: both)"),
+  contextId: z.string().min(1).describe('Context ID to find related contexts for'),
+  relationshipType: z
+    .nativeEnum(ContextRelationshipType)
+    .optional()
+    .describe('Optional: filter by relationship type'),
+  direction: z
+    .enum(['incoming', 'outgoing', 'both'])
+    .optional()
+    .default('both')
+    .describe('Direction of relationships to get (default: both)'),
 });
 
 export const summarizeContextSchema = z.object({
-  contextId: z.string().min(1).describe("Context ID to generate summary for"),
+  contextId: z.string().min(1).describe('Context ID to generate summary for'),
 });
 
 // Define the MCPTools type based on the schemas
@@ -530,4 +572,4 @@ export type MCPTools = {
   add_relationship: typeof addRelationshipSchema;
   get_related_contexts: typeof getRelatedContextsSchema;
   summarize_context: typeof summarizeContextSchema;
-}; 
+};

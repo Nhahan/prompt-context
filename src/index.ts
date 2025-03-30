@@ -3,7 +3,13 @@
 // Removed export { MemoryContextProtocol } from './mcp';
 
 export { FileSystemRepository } from './repository';
-export { BaseSummarizer, SimpleTextSummarizer, AIModelSummarizer, CustomAISummarizer, Summarizer } from './summarizer';
+export {
+  BaseSummarizer,
+  SimpleTextSummarizer,
+  AIModelSummarizer,
+  CustomAISummarizer,
+  Summarizer,
+} from './summarizer';
 export { VectorRepository } from './vector-repository';
 export { GraphRepository } from './graph-repository';
 export { ApiAnalytics } from './analytics';
@@ -19,4 +25,4 @@ export const Importance = ContextImportance;
 
 // Remove default export related to MemoryContextProtocol
 // If a default export is needed, it should be something else
-// export default SomethingElse; 
+// export default SomethingElse;
