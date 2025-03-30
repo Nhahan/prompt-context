@@ -74,16 +74,14 @@ export class MemoryContextProtocol {
    */
   private async initRepositories(): Promise<void> {
     try {
-      // Initialize vector repository if enabled
       if (this.config.useVectorDb) {
         this.vectorRepository = await createVectorRepository(this.config.contextDir);
-        console.log('Vector repository initialized');
+        console.error('Vector repository initialized'); // Log to stderr
       }
       
-      // Initialize graph repository if enabled
       if (this.config.useGraphDb) {
         this.graphRepository = await createGraphRepository(this.config.contextDir);
-        console.log('Graph repository initialized');
+        console.error('Graph repository initialized'); // Log to stderr
       }
     } catch (error) {
       console.error('Error initializing repositories:', error);
@@ -222,65 +220,53 @@ export class MemoryContextProtocol {
       context.tokenCount += tokenCount;
       context.messagesSinceLastSummary += 1;
       
-      // Check if summarization is needed if auto-summarize is enabled
+      // Auto-summarize check
       if (this.config.autoSummarize && this.shouldSummarize(context)) {
         try {
           await this.summarizeContext(contextId);
         } catch (error) {
           console.error(`Failed to auto-summarize context ${contextId}:`, error);
-          // Continue execution even if summarization fails
         }
       }
       
-      // If we have vector and graph repositories enabled, look for semantic similarities
-      // and establish relationships
+      // Vector/Graph integration
       if (
         this.config.useVectorDb && 
         this.vectorRepository && 
-        context.messages.length >= 3 && 
-        context.hasSummary
+        context.messages.length >= 3 // Only after a few messages
       ) {
         try {
-          const summary = await this.repository.loadSummary(contextId);
+           let summary = await this.repository.loadSummary(contextId);
+           if (!summary && context.messages.length > 0) { 
+              console.error(`Attempting to generate summary for ${contextId} before vector operations.`);
+              await this.summarizeContext(contextId); 
+              summary = await this.repository.loadSummary(contextId);
+           }
+
           if (summary) {
-            // Add to vector index
-            await this.vectorRepository.addSummary(summary);
+            await this.vectorRepository.addSummary(summary); 
             
-            // Find similar contexts
-            const similarContexts = await this.findSimilarContexts(message.content);
+            // Find contexts similar to the *new message content*
+            const similarContexts = await this.vectorRepository.findSimilarContexts(message.content, 5); 
             
-            // Add relationships for highly similar contexts
-            if (this.config.useGraphDb && this.graphRepository && similarContexts.length > 0) {
+            if (this.config.useGraphDb && this.graphRepository) {
               for (const similar of similarContexts) {
-                if (similar.contextId !== contextId && similar.similarity >= this.config.similarityThreshold) {
-                  try {
-                    await this.addRelationship(
-                      contextId,
-                      similar.contextId,
-                      ContextRelationshipType.SIMILAR,
-                      similar.similarity
-                    );
-                  } catch (relationshipError) {
-                    console.error(`Failed to add relationship between ${contextId} and ${similar.contextId}:`, relationshipError);
-                    // Continue with other relationships
-                  }
+                if (similar.contextId !== contextId && similar.similarity > this.config.similarityThreshold) { 
+                   console.error(`Adding SIMILAR relationship: ${contextId} -> ${similar.contextId} (Score: ${similar.similarity})`);
+                   await this.addRelationship(
+                     contextId, 
+                     similar.contextId, 
+                     ContextRelationshipType.SIMILAR, 
+                     similar.similarity
+                   );
                 }
               }
             }
+          } else {
+              console.error(`Summary for ${contextId} still not available after generation attempt.`);
           }
-        } catch (vectorError) {
-          console.error(`Error processing vector relationships for ${contextId}:`, vectorError);
-          // Continue execution even if vector processing fails
-        }
-      }
-      
-      // Automatically clean up irrelevant contexts if enabled
-      if (this.config.autoCleanupContexts && context.messages.length % 10 === 0) {
-        try {
-          await this.cleanupIrrelevantContexts(contextId);
-        } catch (cleanupError) {
-          console.error(`Failed to clean up irrelevant contexts for ${contextId}:`, cleanupError);
-          // Continue execution even if cleanup fails
+        } catch (vectorOrGraphError) {
+          console.error(`Error during vector/graph processing for context ${contextId}:`, vectorOrGraphError);
         }
       }
       
@@ -299,90 +285,54 @@ export class MemoryContextProtocol {
    */
   async findSimilarContexts(text: string, limit: number = 5): Promise<SimilarContext[]> {
     if (!this.config.useVectorDb || !this.vectorRepository) {
+      console.warn("Vector DB is not enabled or initialized. Cannot find similar contexts.");
       return [];
     }
-    
     try {
-      return await this.vectorRepository.findSimilarContexts(text, limit);
+      const results = await this.vectorRepository.findSimilarContexts(text, limit);
+      return results; 
     } catch (error) {
-      console.error('Error finding similar contexts:', error);
+      console.error(`Error finding similar contexts for query "${text}":`, error);
       return [];
     }
   }
   
   /**
    * Add a relationship between contexts
-   * @param sourceId Source context ID
-   * @param targetId Target context ID
+   * @param sourceContextId Source context ID
+   * @param targetContextId Target context ID
    * @param type Relationship type
-   * @param strength Relationship strength (0-1)
+   * @param weight Relationship strength (0-1)
    */
   async addRelationship(
-    sourceId: string, 
-    targetId: string, 
+    sourceContextId: string, 
+    targetContextId: string, 
     type: ContextRelationshipType, 
-    strength: number
+    weight: number,
+    metadata?: any 
   ): Promise<void> {
-    if (!this.config.useGraphDb || !this.graphRepository) {
-      return;
-    }
-    
-    try {
-      // Validate inputs
-      if (!sourceId || !targetId) {
-        throw new Error('Source and target IDs must be provided');
+      if (!this.config.useGraphDb || !this.graphRepository) {
+          console.warn("Graph DB is not enabled or initialized. Cannot add relationship.");
+          return;
       }
-      
-      if (strength < 0 || strength > 1) {
-        strength = Math.max(0, Math.min(1, strength)); // Clamp to valid range
+      try {
+          await this.graphRepository.addRelationship(sourceContextId, targetContextId, type, weight, metadata);
+          console.error(`Added relationship ${sourceContextId} -> ${targetContextId} (${type})`);
+
+          const sourceContext = this.contexts.get(sourceContextId);
+           if (sourceContext) {
+               // Initialize relatedContexts if it doesn't exist or is undefined
+               if (!Array.isArray(sourceContext.relatedContexts)) {
+                   sourceContext.relatedContexts = [];
+               }
+               // Add target if not already present
+               if (!sourceContext.relatedContexts.includes(targetContextId)) {
+                  sourceContext.relatedContexts.push(targetContextId);
+               }
+           }
+      } catch (error) {
+           console.error(`Error adding relationship ${sourceContextId} -> ${targetContextId}:`, error);
       }
-      
-      // Add relationship to graph repository
-      await this.graphRepository.addRelationship(sourceId, targetId, type, strength, {
-        createdAt: new Date().toISOString()
-      });
-      
-      // Update related contexts in the source context
-      const sourceContext = await this.getContext(sourceId, false);
-      if (sourceContext) {
-        if (!sourceContext.relatedContexts) {
-          sourceContext.relatedContexts = [];
-        }
-        
-        if (!sourceContext.relatedContexts.includes(targetId)) {
-          sourceContext.relatedContexts.push(targetId);
-        }
-      }
-      
-      // If it's a parent-child relationship, update hierarchy map
-      if (type === ContextRelationshipType.PARENT) {
-        let children = this.hierarchyMap.get(sourceId) || [];
-        if (!children.includes(targetId)) {
-          children.push(targetId);
-          this.hierarchyMap.set(sourceId, children);
-        }
-        
-        // Update the child context's parent reference
-        const targetContext = await this.getContext(targetId, false);
-        if (targetContext) {
-          targetContext.parentContextId = sourceId;
-        }
-      } else if (type === ContextRelationshipType.CHILD) {
-        let children = this.hierarchyMap.get(targetId) || [];
-        if (!children.includes(sourceId)) {
-          children.push(sourceId);
-          this.hierarchyMap.set(targetId, children);
-        }
-        
-        // Update the source context's parent reference
-        if (sourceContext) {
-          sourceContext.parentContextId = targetId;
-        }
-      }
-    } catch (error) {
-      console.error(`Error adding relationship from ${sourceId} to ${targetId}:`, error);
-      throw error;
-    }
   }
   
   /**
@@ -741,50 +691,63 @@ export class MemoryContextProtocol {
   async summarizeContext(contextId: string): Promise<boolean> {
     const context = await this.getContext(contextId, false);
     if (!context || context.messages.length === 0) {
+      console.error(`Context ${contextId} not found or has no messages to summarize.`);
       return false;
     }
     
-    // Generate summary
-    const result = await this.summarizer.summarize(context.messages, contextId);
-    
-    if (result.success && result.summary) {
-      // Save summary
-      await this.repository.saveSummary(result.summary);
-      
-      // Add to vector repository if enabled
-      if (this.config.useVectorDb && this.vectorRepository) {
-        await this.vectorRepository.addSummary(result.summary);
+    try {
+      // Expect SummarizerService to return SummaryResult object
+      // Assuming SummaryResult has { success: boolean, summary?: ContextSummary }
+      const result = await this.summarizer.summarize(context.messages, contextId);
+
+      if (result && result.success && result.summary) { 
+        const summaryText = result.summary.summary;
+        if (!summaryText) {
+             console.error(`Summarization result object exists but summary text is empty for context ${contextId}`);
+             return false;
+        }
+        const returnedSummary = result.summary;
+
+        // Construct the final summary object, without tokenCount
+        const summary: ContextSummary = {
+            contextId,
+            summary: summaryText,
+            lastUpdated: returnedSummary.lastUpdated || Date.now(), 
+            messageCount: returnedSummary.messageCount || context.messages.length, 
+            codeBlocks: returnedSummary.codeBlocks || [], 
+            keyInsights: returnedSummary.keyInsights || [], 
+            version: (returnedSummary.version || 0) + 1, 
+            relatedContexts: returnedSummary.relatedContexts || context.relatedContexts || [], 
+            importanceScore: returnedSummary.importanceScore || context.importanceScore 
+        };
+
+        if (this.config.useVectorDb && this.vectorRepository) {
+           try {
+               await this.vectorRepository.addSummary(summary);
+               console.error(`Added/Updated summary for ${contextId} in vector index.`);
+           } catch (vectorError) {
+               console.error(`Failed to add summary ${contextId} to vector index:`, vectorError);
+           }
+        }
+
+        await this.repository.saveSummary(summary); 
+        context.hasSummary = true;
+        context.messagesSinceLastSummary = 0;
+        context.lastSummarizedAt = summary.lastUpdated;
+        context.importanceScore = summary.importanceScore;
+        context.relatedContexts = summary.relatedContexts || []; 
+
+        console.error(`Successfully summarized context ${contextId}`);
+        return true;
+      } else {
+        // Log the actual result if summarization failed
+        console.error(`Summarization failed or returned empty for context ${contextId}. Result: ${JSON.stringify(result)}`);
+        return false;
       }
-      
-      // Update context data
-      context.hasSummary = true;
-      context.messagesSinceLastSummary = 0;
-      context.lastSummarizedAt = Date.now();
-      
-      // Update importance score if available
-      if (result.summary.importanceScore !== undefined) {
-        context.importanceScore = result.summary.importanceScore;
-      }
-      
-      // Update related contexts if available
-      if (result.summary.relatedContexts) {
-        context.relatedContexts = result.summary.relatedContexts;
-      }
-      
-      // Commit to Git repository
-      if (this.config.useGit) {
-        await this.repository.commit(`Summarize context: ${contextId}`);
-      }
-      
-      // If hierarchical context is enabled and parent exists, update hierarchical summary
-      if (this.config.hierarchicalContext && context.parentContextId) {
-        await this.updateHierarchicalSummary(context.parentContextId);
-      }
-      
-      return true;
+    } catch (error) {
+      console.error(`Error summarizing context ${contextId}:`, error);
+      return false; 
     }
-    
-    return false;
   }
   
   /**

@@ -101,13 +101,13 @@ export class GraphRepository implements GraphRepositoryInterface {
         try {
           const data = await fs.readJson(this.graphPath);
           this.edges = data.edges || [];
-          console.log(`Loaded graph with ${this.edges.length} edges`);
+          console.error(`Loaded graph with ${this.edges.length} edges`);
         } catch (loadError) {
           console.error('Error loading graph, creating a new one:', loadError);
           this.edges = [];
         }
       } else {
-        console.log('No existing graph found, creating a new one');
+        console.error('No existing graph found, creating a new one');
         this.edges = [];
       }
       
@@ -120,7 +120,7 @@ export class GraphRepository implements GraphRepositoryInterface {
       }
       
       this.initialized = true;
-      console.log(`Graph repository initialized with ${this.edges.length} edges`);
+      console.error(`Graph repository initialized with ${this.edges.length} edges`);
     } catch (error) {
       console.error('Failed to initialize graph repository:', error);
       this.initialized = false;
@@ -191,7 +191,7 @@ export class GraphRepository implements GraphRepositoryInterface {
       // Make sure the weights are between 0 and 1
       const normalizedWeight = Math.min(Math.max(weight, 0), 1);
       
-      console.log(`Adding relationship: ${sourceId} -> ${targetId}, type: ${type}, weight: ${normalizedWeight}`);
+      console.error(`Adding relationship: ${sourceId} -> ${targetId}, type: ${type}, weight: ${normalizedWeight}`);
       
       // Create or update the edge
       const existingEdgeIndex = this.edges.findIndex(
@@ -201,7 +201,7 @@ export class GraphRepository implements GraphRepositoryInterface {
       if (existingEdgeIndex >= 0) {
         this.edges[existingEdgeIndex].weight = normalizedWeight;
         this.edges[existingEdgeIndex].metadata = metadata;
-        console.log(`Updated existing relationship at index ${existingEdgeIndex}`);
+        console.error(`Updated existing relationship at index ${existingEdgeIndex}`);
         await this.saveGraph();
         endTracking(); // End tracking
         return;
@@ -215,7 +215,7 @@ export class GraphRepository implements GraphRepositoryInterface {
         metadata
       });
       
-      console.log(`Added new relationship, total edges: ${this.edges.length}`);
+      console.error(`Added new relationship, total edges: ${this.edges.length}`);
       await this.saveGraph();
       endTracking(); // End tracking
     } catch (error) {
@@ -467,63 +467,65 @@ export class GraphRepository implements GraphRepositoryInterface {
   
   /**
    * Get all contexts that have a specific relationship with the given context
-   * @param contextId Context ID
-   * @param type Relationship type
-   * @param direction 'outgoing' for edges where contextId is the source, 'incoming' for edges where contextId is the target, 'both' for both directions
-   * @returns Array of context IDs
+   * (This is the implementation for the interface method, often called by MCP directly)
    */
   public async getRelatedContexts(
     contextId: string, 
     type: ContextRelationshipType, 
     direction: 'outgoing' | 'incoming' | 'both' = 'both'
   ): Promise<string[]> {
-    // API 호출 추적 시작
+      return this.getRelatedContextsByType(contextId, type, direction);
+  }
+
+  /**
+   * Implementation to get related contexts based on type and direction
+   */
+  public async getRelatedContextsByType(
+    contextId: string, 
+    type: ContextRelationshipType, 
+    direction: 'outgoing' | 'incoming' | 'both' = 'both'
+  ): Promise<string[]> {
+    // Use GRAPH_DB_SEARCH for analytics tracking
     const endTracking = apiAnalytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, {
       contextId,
-      relationshipType: type,
-      direction,
-      operation: 'getRelatedContexts'
+      type,
+      direction
     });
     
     try {
       await this.ensureInitialized();
       
-      if (this.fallbackMode) {
-        console.warn(`getRelatedContexts: Running in fallback mode for ${contextId}`);
-        endTracking(); // 추적 종료
-        return [];
-      }
-      
-      console.log(`Getting related contexts for ${contextId}, type: ${type}, direction: ${direction}, edges: ${this.edges.length}`);
+      // Use console.error for logging
+      console.error(`Getting related contexts for ${contextId}, type: ${type}, direction: ${direction}, edges: ${this.edges.length}`); 
       
       const relatedContexts = new Set<string>();
       
-      // Filter edges by direction and type
       this.edges.forEach(edge => {
-        if (edge.type !== type) return;
-        
-        if (direction === 'outgoing' || direction === 'both') {
-          if (edge.source === contextId) {
-            relatedContexts.add(edge.target);
+        if (edge.type === type) {
+          if (direction === 'outgoing' || direction === 'both') {
+            if (edge.source === contextId) {
+              relatedContexts.add(edge.target);
+            }
           }
-        }
-        
-        if (direction === 'incoming' || direction === 'both') {
-          if (edge.target === contextId) {
-            relatedContexts.add(edge.source);
+          if (direction === 'incoming' || direction === 'both') {
+            if (edge.target === contextId) {
+              relatedContexts.add(edge.source);
+            }
           }
         }
       });
       
-      const results = Array.from(relatedContexts);
-      console.log(`Found ${results.length} related contexts for ${contextId}`);
+      const result = Array.from(relatedContexts);
       
-      endTracking(); // 추적 종료
-      return results;
+      // Use console.error for logging
+      console.error(`Found ${result.length} related contexts for ${contextId}`); 
+      
+      endTracking(); // End tracking
+      return result;
     } catch (error) {
-      console.error(`Error in getRelatedContexts for ${contextId}:`, error);
-      endTracking(); // 추적 종료
-      return [];
+      console.error(`Error getting related contexts for ${contextId}:`, error);
+      endTracking(); // End tracking even if an error occurs
+      throw error;
     }
   }
   

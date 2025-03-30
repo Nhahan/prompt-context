@@ -23,7 +23,7 @@ An MCP protocol that helps AI agents efficiently remember and utilize previous c
       "command": "npx",
       "args": [
         "-y",
-        "prompt-context-mcp"
+        "prompt-context"
       ]
     }
   }

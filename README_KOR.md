@@ -23,7 +23,7 @@ AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용�
       "command": "npx",
       "args": [
         "-y",
-        "prompt-context-mcp"
+        "prompt-context"
       ]
     }
   }

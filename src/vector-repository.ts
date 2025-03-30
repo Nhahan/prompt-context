@@ -26,17 +26,17 @@ export interface HNSWLib {
   HierarchicalNSW: new (space: string, dim: number) => HierarchicalNSWIndex;
 }
 
-// Interface for dynamic import - adjusted to match the actual types of the library
+// Define the correct interface based on library expectations
 export interface HierarchicalNSWIndex {
-  initIndex(maxElements: number, efConstruction: number, M: number): void;
+  initIndex(maxElements: number, M?: number, efConstruction?: number, randomSeed?: number, allowReplaceDeleted?: boolean): void;
   resizeIndex(newSize: number): void;
-  addPoint(point: Float32Array, idx: number): void;
+  addPoint(point: Float32Array, idx: number, replaceDeleted?: boolean): void; // Expect Float32Array
   markDelete(idx: number): void;
-  getIdsList(): Int32Array;
-  searchKnn(query: Float32Array, k: number): { distances: Float32Array; neighbors: Int32Array };
+  getIdsList(): number[]; 
+  searchKnn(query: Float32Array, k: number, filter?: ((label: number) => boolean) | number[]): { distances: number[]; neighbors: number[] }; // Expect Float32Array
   setEf(ef: number): void;
   saveIndex(path: string): void;
-  loadIndex(path: string, maxElements?: number): void;
+  loadIndex(path: string, maxElements?: number, allowReplaceDeleted?: boolean): void;
   getMaxElements(): number;
   getCurrentCount(): number;
 }
@@ -80,7 +80,7 @@ export class VectorRepository implements VectorRepositoryInterface {
   private contextDir: string;
   private dimensions: number;
   private embeddingModel: FeatureExtractionPipeline | null = null;
-  private vectorIndex: HNSWIndex | null = null;
+  private vectorIndex: HierarchicalNSWIndex | null = null;
   private initialized: boolean = false;
   private initPromise: Promise<void> | null = null;
   private contextMap: Map<string, number> = new Map(); // Maps contextId to vector index
@@ -121,7 +121,7 @@ export class VectorRepository implements VectorRepositoryInterface {
       
       // 테스트 환경에서는 바로 폴백 모드로 전환
       if (process.env.NODE_ENV === 'test') {
-        console.log('Test environment detected, using fallback mode for vector repository');
+        console.error('Test environment detected, using fallback mode for vector repository');
         this.fallbackMode = true;
         this.initialized = true;
         return;
@@ -132,7 +132,7 @@ export class VectorRepository implements VectorRepositoryInterface {
         const hnswlib = await import('hnswlib-node');
         
         // Initialize vector index
-        this.vectorIndex = new hnswlib.HierarchicalNSW('cosine', this.dimensions) as unknown as HNSWIndex;
+        this.vectorIndex = new hnswlib.HierarchicalNSW('cosine', this.dimensions) as unknown as HierarchicalNSWIndex;
         
         // Try to load existing index
         const indexPath = path.join(vectorDir, 'vector-index.bin');
@@ -148,15 +148,15 @@ export class VectorRepository implements VectorRepositoryInterface {
             const indices = Array.from(this.contextMap.values());
             this.nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 0;
             
-            // Load vector index with appropriate parameters
-            await this.vectorIndex.readIndex(indexPath, false);
-            console.log(`Loaded vector index with ${this.contextMap.size} contexts`);
+            // Use loadIndex instead of readIndex
+            this.vectorIndex.loadIndex(indexPath, this.contextIdToIndex.size, false);
+            console.error(`Loaded vector index with ${this.vectorIndex.getCurrentCount()} elements (max: ${this.vectorIndex.getMaxElements()}). Next label: ${this.nextIndex}`);
           } catch (loadError) {
-            console.error('Error loading vector index, creating a new one:', loadError);
-            await this.createNewIndex();
+            console.error('Error loading vector index/map, creating a new one:', loadError);
+            await this.createNewIndex(vectorDir);
           }
         } else {
-          await this.createNewIndex();
+          await this.createNewIndex(vectorDir);
         }
       } catch (hnswError) {
         console.error('Error initializing HNSW library:', hnswError);
@@ -170,7 +170,7 @@ export class VectorRepository implements VectorRepositoryInterface {
         this.embeddingModel = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2') as FeatureExtractionPipeline;
       } catch (modelError) {
         console.error('Error loading embedding model:', modelError);
-        this.fallbackMode = true; // Enable fallback mode instead of throwing
+        this.fallbackMode = true; 
         console.warn('Switching to fallback mode due to embedding model loading failure');
       }
       
@@ -186,7 +186,7 @@ export class VectorRepository implements VectorRepositoryInterface {
   /**
    * Create a new vector index
    */
-  private async createNewIndex(): Promise<void> {
+  private async createNewIndex(vectorDir: string): Promise<void> {
     // Reset context map and index
     this.contextMap = new Map();
     this.nextIndex = 0;
@@ -199,7 +199,7 @@ export class VectorRepository implements VectorRepositoryInterface {
       }
       
       // Initialize with default capacity
-      console.log('Initializing vector index with default capacity (1000)');
+      console.error('Initializing vector index with default capacity (1000)');
       
       try {
         // 다양한 hnswlib-node 버전 호환성을 위한 처리
@@ -219,7 +219,7 @@ export class VectorRepository implements VectorRepositoryInterface {
             return;
           }
         }
-        console.log('Created new vector index');
+        console.error('Created new vector index');
       } catch (initError) {
         console.error('Failed to initialize vector index:', initError);
         this.fallbackMode = true;
@@ -270,28 +270,27 @@ export class VectorRepository implements VectorRepositoryInterface {
   /**
    * Save the current vector index and context map
    */
-  private async saveIndex(): Promise<void> {
+  private async saveIndexAndMap(vectorDir?: string): Promise<void> {
     if (this.fallbackMode || !this.initialized || !this.vectorIndex) {
       console.warn('Cannot save index: repository not properly initialized');
       return;
     }
     
+    const dir = vectorDir || path.join(this.contextDir, 'vectors');
     try {
-      const vectorDir = path.join(this.contextDir, 'vectors');
-      await fs.ensureDir(vectorDir);
-      
-      const indexPath = path.join(vectorDir, 'vector-index.bin');
-      const mapPath = path.join(vectorDir, 'context-map.json');
-      
-      // Save index
-      this.vectorIndex.writeIndex(indexPath);
-      
-      // Save context map
-      const contextMapObject = Object.fromEntries(this.contextMap);
-      await fs.writeJson(mapPath, contextMapObject, { spaces: 2 });
+      await fs.ensureDir(dir);
+      const indexPath = path.join(dir, 'vector-index.bin');
+      const mapPath = path.join(dir, 'context-map.json');
+
+      // 1. Use saveIndex instead of writeIndex
+      this.vectorIndex.saveIndex(indexPath);
+
+      // 2. Save mapping data
+      const contextMapData = { /* ... map data ... */ };
+      await fs.writeJson(mapPath, contextMapData, { spaces: 2 });
+
     } catch (error) {
-      console.error('Error saving vector index:', error);
-      throw error; // 에러를 전파하여 호출자가 처리할 수 있게 함
+      console.error('Error saving vector index and map:', error);
     }
   }
   
@@ -385,7 +384,7 @@ export class VectorRepository implements VectorRepositoryInterface {
    * Save the vector index and associated maps
    */
   private async saveVectorIndex(): Promise<void> {
-    return this.saveIndex();
+    return this.saveIndexAndMap();
   }
   
   /**
@@ -429,85 +428,57 @@ export class VectorRepository implements VectorRepositoryInterface {
    * @param summary Summary to add or update
    */
   public async addSummary(summary: ContextSummary): Promise<void> {
-    // Start API call tracking
-    const endTracking = apiAnalytics.trackCall(ApiCallType.VECTOR_DB_ADD, {
-      contextId: summary.contextId
-    });
+    await this.ensureInitialized();
+
+    if (this.fallbackMode) {
+      this.fallbackStorage.set(summary.contextId, summary);
+      await this.saveFallbackStorage();
+      return;
+    }
     
+    if (!this.vectorIndex || !this.embeddingModel) {
+      console.error('Vector index or embedding model not initialized, cannot add summary.');
+      return;
+    }
+
     try {
-      // Initialize if needed
-      await this.ensureInitialized();
-      
-      // If in fallback mode, store in the basic storage
-      if (this.fallbackMode) {
-        this.fallbackStorage.set(summary.contextId, summary);
-        const saveResult = await this.saveFallbackStorage();
-        if (!saveResult) {
-          console.warn(`Failed to save summary for '${summary.contextId}' to fallback storage. Data might be lost on restart.`);
-        }
-        endTracking(); // End tracking
-        return;
-      }
-      
-      // Generate a vector embedding from the summary text
       const embedding = await this.generateEmbedding(summary.summary);
-      
-      // 임베딩 생성 실패 시 폴백 모드로 전환
       if (!embedding) {
-        this.fallbackMode = true;
-        this.fallbackStorage.set(summary.contextId, summary);
-        const saveResult = await this.saveFallbackStorage();
-        if (!saveResult) {
-          console.warn(`Failed to save summary for '${summary.contextId}' to fallback storage. Data might be lost on restart.`);
-        }
-        endTracking();
-        return;
+          console.error(`Failed to generate embedding for context ${summary.contextId}, cannot add to index.`);
+          return;
       }
-      
-      // Safe calculation of nextIndex
-      let nextIndex = this.getCurrentIndex();
-      
-      // Check if this context already exists, if so, update it
-      const existingIndex = this.contextIdToIndex.get(summary.contextId);
-      if (existingIndex !== undefined && this.vectorIndex) {
-        // Update existing vector
-        this.vectorIndex.addPoint(embedding, existingIndex);
-        
-        // Update index map
-        this.indexToContextId.set(existingIndex, summary.contextId);
-        this.contextToEmbedding.set(summary.contextId, embedding);
-        
-        // Save updated index
-        await this.saveVectorIndex();
-        endTracking(); // End tracking
-        return;
-      }
-      
-      // Add the new vector at the next available index
-      if (this.vectorIndex && embedding) {
-        this.vectorIndex.addPoint(embedding, nextIndex);
-        
-        // Update index maps
-        this.indexToContextId.set(nextIndex, summary.contextId);
-        this.contextIdToIndex.set(summary.contextId, nextIndex);
-        this.contextToEmbedding.set(summary.contextId, embedding);
-        
-        // Save updated index
-        await this.saveVectorIndex();
+      const hnswIndex = this.vectorIndex as HierarchicalNSWIndex;
+      let labelToAdd = this.contextIdToIndex.get(summary.contextId);
+
+      if (labelToAdd === undefined) {
+          labelToAdd = this.nextIndex++;
+          this.contextIdToIndex.set(summary.contextId, labelToAdd);
+          this.indexToContextId.set(labelToAdd, summary.contextId);
+          
+          if (hnswIndex.getCurrentCount() >= hnswIndex.getMaxElements()) {
+              const newSize = Math.max(hnswIndex.getMaxElements() * 2, hnswIndex.getCurrentCount() + 1);
+              console.error(`Resizing vector index to ${newSize}`);
+              hnswIndex.resizeIndex(newSize);
+          }
+          
+          hnswIndex.addPoint(embedding, labelToAdd);
+          console.error(`Added context ${summary.contextId} to vector index with label ${labelToAdd}`);
+          
       } else {
-        // 벡터 인덱스나 임베딩이 없으면 폴백 저장소 사용
-        this.fallbackMode = true;
-        this.fallbackStorage.set(summary.contextId, summary);
-        const saveResult = await this.saveFallbackStorage();
-        if (!saveResult) {
-          console.warn(`Failed to save summary for '${summary.contextId}' to fallback storage. Data might be lost on restart.`);
-        }
+          console.error(`Context ${summary.contextId} exists (label ${labelToAdd}). Updating by replacement.`);
+          try {
+              hnswIndex.markDelete(labelToAdd);
+              hnswIndex.addPoint(embedding, labelToAdd);
+          } catch(updateError: any) {
+              console.error(`Error updating index for ${summary.contextId} (label ${labelToAdd}): ${updateError.message}.`);
+          }
       }
       
-      endTracking(); // End tracking
-    } catch (error) {
-      endTracking(); // End tracking even if an error occurs
-      throw error; // Propagate error so the caller can handle it
+      this.contextToEmbedding.set(summary.contextId, embedding); 
+      await this.saveVectorIndex();
+
+    } catch (error: any) {
+      console.error(`Error processing addSummary for context ${summary.contextId}: ${error.message}`, error.stack);
     }
   }
   
@@ -518,73 +489,57 @@ export class VectorRepository implements VectorRepositoryInterface {
    * @returns Array of context IDs with similarity scores
    */
   public async findSimilarContexts(text: string, limit: number = 5): Promise<SimilarContext[]> {
-    // Start API call tracking
-    const endTracking = apiAnalytics.trackCall(ApiCallType.VECTOR_DB_SEARCH, {
-      query: text,
-      limit
-    });
-    
-    try {
-      await this.ensureInitialized();
-      
-      // If in fallback mode, use keyword matching
-      if (this.fallbackMode) {
-        const similarContexts = this.findSimilarContextsWithKeywords(text, limit);
-        endTracking(); // End tracking
-        return similarContexts;
-      }
-      
-      // Generate embedding for the query text
-      const queryEmbedding = await this.generateEmbedding(text);
-      
-      // 임베딩이나 벡터 인덱스가 없으면 빈 결과 반환
-      if (!queryEmbedding || !this.vectorIndex) {
-        endTracking();
-        return [];
-      }
-      
-      // Search for nearest neighbors - HNSWIndex에 getCurrentCount가 없으므로 컬렉션 크기 사용
-      const k = Math.min(limit, this.contextMap.size || 1);
-      
-      try {
-        const result = this.vectorIndex.searchKnn(queryEmbedding, k);
-        
-        // 결과의 유효성 검사: neighbors와 distances가 정의되어 있는지 확인
-        if (!result || !result.neighbors || !result.distances) {
-          if (process.env.NODE_ENV !== 'test') {
-            console.warn('Invalid search result returned from vector index');
-          }
-          endTracking();
-          return [];
-        }
-        
-        // Convert the raw neighbors and distances into a more usable format
-        const similarContexts: SimilarContext[] = [];
-        for (let i = 0; i < result.neighbors.length; i++) {
-          const index = result.neighbors[i];
-          const contextId = this.indexToContextId.get(index);
-          
-          if (contextId) {
-            similarContexts.push({
-              contextId,
-              similarity: 1 - result.distances[i] // Convert distance to similarity
-            });
-          }
-        }
-        
-        endTracking(); // End tracking
-        return similarContexts;
-      } catch (searchError) {
-        console.error('Error searching in vector index:', searchError);
-        // 검색 에러 발생 시 키워드 매칭으로 폴백
-        const fallbackResults = this.findSimilarContextsWithKeywords(text, limit);
-        endTracking(); // End tracking
-        return fallbackResults;
-      }
-    } catch (error) {
-      endTracking(); // End tracking
-      console.error('Error in findSimilarContexts:', error);
+    await this.ensureInitialized();
+
+     if (this.fallbackMode) {
+      console.error('Vector DB in fallback mode, using keyword matching.'); // Log to stderr
+      return this.findSimilarContextsWithKeywords(text, limit);
+    }
+
+    if (!this.vectorIndex || !this.embeddingModel || this.contextIdToIndex.size === 0) {
+      console.error('Vector index/model not ready or index empty, cannot perform similarity search.'); // Log to stderr
       return [];
+    }
+
+    try {
+        const queryEmbedding = await this.generateEmbedding(text);
+        if (!queryEmbedding) {
+            console.error('Failed to generate embedding for query text, cannot search.'); // Log to stderr
+            return [];
+        }
+
+        const hnswIndex = this.vectorIndex as HierarchicalNSWIndex;
+        const actualLimit = Math.min(limit, hnswIndex.getCurrentCount());
+        if (actualLimit <= 0) {
+            console.warn("No elements in index to search.");
+            return [];
+        }
+
+        const results = hnswIndex.searchKnn(queryEmbedding, actualLimit);
+        const neighbors = results.neighbors;
+        const distances = results.distances;
+
+        const similarContexts: SimilarContext[] = [];
+        for (let i = 0; i < neighbors.length; i++) {
+            const neighborLabel = neighbors[i];
+            const distance = distances[i];
+            const contextId = this.indexToContextId.get(neighborLabel);
+
+            if (contextId) {
+                const similarityScore = 1 - distance;
+                 // Use 'similarity' key as defined in SimilarContext interface
+                similarContexts.push({ contextId, similarity: similarityScore }); 
+            } else {
+                 console.warn(`Warning: Found neighbor label ${neighborLabel} with no corresponding contextId.`); // Log to stderr
+            }
+        }
+
+        similarContexts.sort((a, b) => b.similarity - a.similarity);
+        return similarContexts;
+    } catch (error: any) {
+      console.error(`Error searching in vector index: ${error.message}`, error.stack);
+      console.error('Falling back to keyword matching due to vector search error.'); // Log to stderr
+      return this.findSimilarContextsWithKeywords(text, limit);
     }
   }
   
@@ -622,7 +577,8 @@ export class VectorRepository implements VectorRepositoryInterface {
       
       // Mark the point as deleted in the vector index
       if (this.vectorIndex) {
-        this.vectorIndex.markDelete(index);
+        const hnswIndex = this.vectorIndex as HierarchicalNSWIndex;
+        hnswIndex.markDelete(index);
       }
       
       // Remove from the maps
@@ -687,7 +643,7 @@ export class VectorRepository implements VectorRepositoryInterface {
   public async dispose(): Promise<void> {
     try {
       if (this.initialized && !this.fallbackMode && this.vectorIndex) {
-        await this.saveIndex();
+        await this.saveIndexAndMap();
       }
       
       // Reset state

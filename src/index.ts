@@ -12,7 +12,7 @@ export {
 } from './summarizer';
 
 // Export MCP server
-export { app as mcpServer } from './mcp-server';
+export { server as mcpServer } from './mcp-server';
 
 // Create convenient access to enums and specific types
 import { ContextImportance } from './types';
