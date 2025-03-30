@@ -2,11 +2,11 @@ import {
   CodeBlock, 
   ContextSummary, 
   Message, 
-  SummarizerService, 
   SummaryResult, 
   HierarchicalSummary,
   MetaSummary,
-  ContextImportance
+  ContextImportance,
+  SummarizerService
 } from './types';
 
 /**
@@ -814,4 +814,4 @@ export class CustomAISummarizer extends BaseSummarizer {
       return await fallbackSummarizer.createHierarchicalSummary(summaries, parentId);
     }
   }
-} 
+}

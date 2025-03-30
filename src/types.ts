@@ -32,6 +32,14 @@ export interface MCPConfig {
   trackApiCalls?: boolean;
   /** Number of days to retain API call data */
   apiAnalyticsRetention?: number;
+  /** Port for HTTP server */
+  port?: number;
+  /** Vector DB configuration */
+  vectorDb?: VectorDbConfig;
+  /** Summarizer configuration */
+  summarizer?: SummarizerConfig;
+  /** Debug flag */
+  debug?: boolean;
 }
 
 /**
@@ -397,4 +405,93 @@ export interface Repository {
    * @returns Whether the file should be ignored
    */
   shouldIgnore(filePath: string): boolean;
-} 
+}
+
+/**
+ * Configuration for Vector DB
+ */
+export interface VectorDbConfig {
+  dimensions?: number;
+  maxElements?: number;
+  // Add other vector DB specific settings if needed
+}
+
+/**
+ * Configuration for Summarizer
+ */
+export interface SummarizerConfig {
+  model?: string; // Example: Name or ID of the summarization model
+  apiKey?: string; // Example: API key if needed
+  maxOutputTokens?: number;
+  // Add other summarizer specific settings
+}
+
+/**
+ * Default Configuration Values
+ */
+export const DEFAULT_CONFIG: MCPConfig = {
+  messageLimitThreshold: 10,
+  tokenLimitPercentage: 80,
+  contextDir: '.prompt-context',
+  useGit: true,
+  ignorePatterns: [],
+  autoSummarize: true,
+  hierarchicalContext: true,
+  metaSummaryThreshold: 5,
+  maxHierarchyDepth: 3,
+  useVectorDb: false,
+  useGraphDb: false,
+  similarityThreshold: 0.6,
+  autoCleanupContexts: false,
+  debug: false,
+  port: 6789, // Default HTTP port
+  vectorDb: {
+    dimensions: 1536, // Example default dimension (e.g., text-embedding-ada-002)
+    maxElements: 10000
+  },
+  summarizer: {
+    // Default summarizer settings can go here
+    maxOutputTokens: 256
+  }
+};
+
+// Function to get the repository path (might depend on config.contextDir)
+// Moved this logic into repository.ts (getBasePathFromConfig)
+// export function getRepositoryPath(): string {
+//     const config = loadConfig(); // This creates a dependency cycle or needs careful handling
+//     const repoPath = path.join(process.cwd(), config.contextDir || '.prompt-context');
+//     if (!fs.existsSync(repoPath)) {
+//         fs.mkdirSync(repoPath, { recursive: true });
+//     }
+//     return repoPath;
+// }
+
+// Functions for loading/saving config (might need refinement)
+// It's often better to handle config loading/saving closer to the CLI/entry point
+// export function loadConfig(): MCPConfig {
+//     const repoPath = path.join(process.cwd(), DEFAULT_CONFIG.contextDir); // Use default temporarily
+//     const configPath = path.join(repoPath, 'config.json');
+//     try {
+//         if (fs.existsSync(configPath)) {
+//             const configContent = fs.readFileSync(configPath, 'utf-8');
+//             const loadedConfig = JSON.parse(configContent);
+//             return { ...DEFAULT_CONFIG, ...loadedConfig };
+//         }
+//     } catch (error) {
+//         console.error(`Error loading config from ${configPath}:`, error);
+//     }
+//     return DEFAULT_CONFIG;
+// }
+
+// export function saveConfig(config: MCPConfig): void {
+//     const repoPath = path.join(process.cwd(), config.contextDir || '.prompt-context');
+//     const configPath = path.join(repoPath, 'config.json');
+//     try {
+//         if (!fs.existsSync(repoPath)) {
+//             fs.mkdirSync(repoPath, { recursive: true });
+//         }
+//         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+//     } catch (error) {
+//         console.error(`Error saving config to ${configPath}:`, error);
+//     }
+// } 

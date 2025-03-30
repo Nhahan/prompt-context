@@ -1,18 +1,7 @@
-// Export types
-export * from './types';
-
-// Export core classes
+// Export core classes and types
 export { MemoryContextProtocol } from './mcp';
-export { FileSystemRepository } from './repository';
-export { 
-  BaseSummarizer, 
-  SimpleTextSummarizer, 
-  AIModelSummarizer,
-  CustomAISummarizer
-} from './summarizer';
-
-// Export MCP server
-export { server as mcpServer } from './mcp-server';
+export * from './types';
+export { initializeRepositories } from './repository';
 
 // Create convenient access to enums and specific types
 import { ContextImportance } from './types';

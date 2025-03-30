@@ -3,6 +3,15 @@ import path from 'path';
 import * as git from 'isomorphic-git';
 import { ContextSummary, MCPConfig, Repository, HierarchicalSummary, MetaSummary } from './types';
 import IgnoreClass from 'ignore';
+import { VectorRepository } from './vector-repository';
+import { GraphRepository } from './graph-repository';
+
+// Define the Repositories interface here
+export interface Repositories {
+  fs: FileSystemRepository;
+  vector?: VectorRepository;
+  graph?: GraphRepository;
+}
 
 /**
  * Context repository implementation
@@ -454,4 +463,71 @@ export class FileSystemRepository implements Repository {
       return false;
     }
   }
+
+  async initialize(): Promise<void> {
+    // ... initialization logic ...
+    console.error('[FS REPO] Initialized FileSystemRepository'); // Add log
+  }
+}
+
+function getBasePathFromConfig(config: MCPConfig): string {
+    const defaultPath = path.join(process.cwd(), config.contextDir || '.prompt-context');
+    if (!fs.existsSync(defaultPath)) {
+        fs.mkdirSync(defaultPath, { recursive: true });
+    }
+    return defaultPath;
+}
+
+export async function initializeRepositories(config: MCPConfig): Promise<Repositories> {
+  console.error('[REPO INIT] Starting repository initialization...');
+  const fsRepo = new FileSystemRepository(config);
+  await fsRepo.initialize();
+  console.error('[REPO INIT] FileSystemRepository initialized.');
+
+  let vectorRepo: VectorRepository | undefined = undefined;
+  const repoPath = getBasePathFromConfig(config);
+  const vectorDataDir = path.join(repoPath, 'vectors'); // Directory for vector data
+  // const vectorDbPath = path.join(vectorDataDir, 'vector_index.bin'); // Path is handled internally now?
+  // const idMapPath = path.join(vectorDataDir, 'vector_id_map.json'); // Path is handled internally now?
+
+  if (config.useVectorDb) {
+    console.error('[REPO INIT] Initializing VectorRepository with dir:', vectorDataDir);
+    try {
+      // Pass the directory path and dimensions
+      vectorRepo = new VectorRepository(
+          vectorDataDir, 
+          config.vectorDb?.dimensions // Pass optional dimension (defaults to 384 in constructor)
+      );
+      console.error('[REPO INIT] VectorRepository instantiated.');
+    } catch (err) {
+       console.error('[REPO INIT] Failed to instantiate VectorRepository:', err);
+       vectorRepo = undefined;
+    }
+  } else {
+     console.error('[REPO INIT] VectorRepository instantiation skipped (useVectorDb=false).');
+  }
+
+  let graphRepo: GraphRepository | undefined = undefined;
+  const graphDbPath = path.join(repoPath, 'graph_data.json'); // Path for GraphRepository
+
+  if (config.useGraphDb) {
+    console.error('[REPO INIT] Initializing GraphRepository...');
+     try {
+      // Pass the file path string to the constructor
+      graphRepo = new GraphRepository(graphDbPath);
+      console.error('[REPO INIT] GraphRepository instantiated with path:', graphDbPath);
+    } catch (err) {
+       console.error('[REPO INIT] Failed to instantiate GraphRepository:', err);
+       graphRepo = undefined;
+    }
+  } else {
+     console.error('[REPO INIT] GraphRepository instantiation skipped (useGraphDb=false).');
+  }
+
+  console.error('[REPO INIT] Repository initialization complete.');
+  return {
+    fs: fsRepo,
+    vector: vectorRepo,
+    graph: graphRepo
+  };
 } 

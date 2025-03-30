@@ -1,20 +1,19 @@
 {
   "name": "prompt-context",
-  "version": "0.1.1-beta.15",
+  "version": "0.1.1-beta.16",
   "description": "An MCP protocol that helps AI agents efficiently remember and utilize previous conversation context.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "prompt-context": "dist/mcp-server.js",
-    "prompt-context-cli": "dist/cli.js"
+    "prompt-context": "dist/mcp-server.js"
   },
   "scripts": {
-    "build": "npm run clean && tsc && chmod +x dist/cli.js dist/mcp-server.js",
+    "build": "npm run clean && tsc && chmod +x dist/mcp-server.js",
     "lint": "eslint src/**/*.ts",
     "prepublish": "npm run build",
     "clean": "rimraf dist",
     "prebuild": "npm run clean",
-    "postbuild": "chmod +x dist/cli.js dist/mcp-server.js",
+    "postbuild": "chmod +x dist/mcp-server.js",
     "start:mcp": "node dist/mcp-server.js",
     "mcp": "ts-node src/mcp-server.ts",
     "cli": "node dist/cli.js",

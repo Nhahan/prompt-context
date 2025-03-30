@@ -35,3 +35,6 @@ temp/
 
 # MCP
 .prompt-context/
+
+# MCP Reference Implementation (Do not commit)
+mcp-reference/
