@@ -78,7 +78,7 @@ describe('Summarizer Tests', () => {
       expect(summary.summary).toContain('hierarchical');
       
       // Check timestamps
-      expect(summary.lastUpdated).toBeGreaterThan(0);
+      expect(summary.createdAt).toBeGreaterThan(0);
       
       // Version should be set
       expect(summary.version).toBe(1);
@@ -129,7 +129,7 @@ describe('Summarizer Tests', () => {
       const summaries: ContextSummary[] = [
         {
           contextId: 'child-1',
-          lastUpdated: Date.now() - 2000,
+          createdAt: Date.now() - 2000,
           summary: 'This is a summary about vector databases in MCP',
           codeBlocks: [],
           messageCount: 5,
@@ -137,7 +137,7 @@ describe('Summarizer Tests', () => {
         },
         {
           contextId: 'child-2',
-          lastUpdated: Date.now() - 1000,
+          createdAt: Date.now() - 1000,
           summary: 'This is a summary about graph relationships in MCP',
           codeBlocks: [],
           messageCount: 7,
@@ -350,7 +350,7 @@ describe('CustomAISummarizer Tests', () => {
   const testSummaries: ContextSummary[] = [
     {
       contextId: 'context-1',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'Summary about MCP design',
       codeBlocks: [],
       messageCount: 5,
@@ -358,7 +358,7 @@ describe('CustomAISummarizer Tests', () => {
     },
     {
       contextId: 'context-2',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'Summary about MCP implementation',
       codeBlocks: [],
       messageCount: 8,
@@ -469,7 +469,7 @@ describe('CustomAISummarizer Tests', () => {
         const summary = `Summary of ${messages.length} messages for context ${contextId}. Recent topics: Test fallback summary`;
         const summaryObject = {
           contextId: contextId,
-          lastUpdated: Date.now(),
+          createdAt: Date.now(),
           summary,
           codeBlocks: [],
           messageCount: messages.length,

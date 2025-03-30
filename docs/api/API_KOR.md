@@ -314,7 +314,6 @@ MCP 서버는 다음 구성 옵션을 인식합니다. 이 옵션들은 환경 �
 | `messageLimitThreshold` | `MESSAGE_LIMIT_THRESHOLD` | 요약을 트리거하는 메시지 수 임계값 | 10 | `--config '{"messageLimitThreshold": 20}'` |
 | `tokenLimitPercentage` | `TOKEN_LIMIT_PERCENTAGE` | 모델 제한의 백분율로 표시되는 토큰 수 임계값 | 80 | `--config '{"tokenLimitPercentage": 70}'` |
 | `contextDir` | `CONTEXT_DIR` | 컨텍스트 저장 디렉토리 | '.prompt-context' | `--config '{"contextDir": "./my-context"}'` |
-| `useGit` | `USE_GIT` | Git 리포지토리 정보 사용 여부 ('false'로 설정하여 비활성화) | true | `--config '{"useGit": false}'` |
 | `ignorePatterns` | `IGNORE_PATTERNS` (JSON 문자열 배열) | 무시할 파일 및 디렉토리 패턴 | [] | `--config '{"ignorePatterns": ["node_modules", ".*.log"]}'` |
 | `autoSummarize` | `AUTO_SUMMARIZE` | 자동 요약 활성화 여부 ('false'로 설정하여 비활성화) | true | `--config '{"autoSummarize": false}'` |
 | `hierarchicalContext` | `HIERARCHICAL_CONTEXT` | 계층적 컨텍스트 관리 활성화 ('false'로 설정하여 비활성화) | true | `--config '{"hierarchicalContext": false}'` |

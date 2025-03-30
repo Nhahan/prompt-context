@@ -122,7 +122,6 @@ MCP 서버는 다음 구성 옵션을 인식합니다:
 | `messageLimitThreshold` | 요약을 트리거하는 메시지 수 임계값 | 10 |
 | `tokenLimitPercentage` | 모델 제한의 백분율로 표시되는 토큰 수 임계값 | 80 |
 | `contextDir` | 컨텍스트 저장 디렉토리 | '.prompt-context' |
-| `useGit` | Git 리포지토리 사용 여부 | true |
 | `ignorePatterns` | 무시할 파일 및 디렉토리 패턴 | [] |
 | `autoSummarize` | 자동 요약 활성화 여부 | true |
 | `hierarchicalContext` | 계층적 컨텍스트 관리 활성화 | true |

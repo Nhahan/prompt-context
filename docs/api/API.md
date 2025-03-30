@@ -314,7 +314,6 @@ The MCP server recognizes these configuration options, which can be set via envi
 | `messageLimitThreshold` | `MESSAGE_LIMIT_THRESHOLD` | Message count threshold to trigger summary | 10 | `--config '{"messageLimitThreshold": 20}'` |
 | `tokenLimitPercentage` | `TOKEN_LIMIT_PERCENTAGE` | Token count threshold as percentage of model limit | 80 | `--config '{"tokenLimitPercentage": 70}'` |
 | `contextDir` | `CONTEXT_DIR` | Context storage directory | '.prompt-context' | `--config '{"contextDir": "./my-context"}'` |
-| `useGit` | `USE_GIT` | Whether to use Git repository information (set to 'false' to disable) | true | `--config '{"useGit": false}'` |
 | `ignorePatterns` | `IGNORE_PATTERNS` (JSON string array) | Patterns for files and directories to ignore | [] | `--config '{"ignorePatterns": ["node_modules", ".*.log"]}'` |
 | `autoSummarize` | `AUTO_SUMMARIZE` | Whether to enable automatic summarization (set to 'false' to disable) | true | `--config '{"autoSummarize": false}'` |
 | `hierarchicalContext` | `HIERARCHICAL_CONTEXT` | Enable hierarchical context management (set to 'false' to disable) | true | `--config '{"hierarchicalContext": false}'` |

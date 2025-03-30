@@ -1,162 +1,100 @@
 # Prompt Context MCP Server
 
-An MCP protocol that helps AI agents efficiently remember and utilize previous conversation context. This protocol tracks conversation history for each file or context, periodically summarizes it, and saves the summaries to enhance the AI agent's contextual understanding.
+This project implements an MCP Server—a server that uses the standardized [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol/specification) to enable LLMs to communicate seamlessly with external data sources and tools. Specifically, this server focuses on managing and providing conversational context to language models.
 
-> *Read this in [Korean](README_KOR.md)*
+## Features
 
-## Key Features
+*   **Context Storage:** Stores conversational context (messages, summaries) locally on the filesystem.
+*   **MCP Compliance:** Implements core MCP tool specifications for context management.
+*   **Message Handling:** Adds new messages to specific context conversations.
+*   **Context Retrieval:** Fetches full context including messages and summaries.
+*   **Automatic Summarization:** (Optional) Automatically summarizes long conversations based on message count thresholds using AI.
+*   **Similarity Search:** (Optional, requires Vector DB) Finds contexts similar to a given query.
+*   **Relationship Management:** (Optional, requires Graph DB) Manages relationships (e.g., similar, continues, references) between different contexts.
+*   **Configuration:** Load configuration from `.mcp-config.json`, environment variables, or CLI arguments.
+*   **Analytics:** (Optional) Tracks API calls for usage analysis.
 
-- **Intelligent Context Memory**: AI agents automatically remember conversation history and recall it when needed
-- **Importance-Based Context Retention**: Automatically identifies and preserves important information
-- **Automatic Summarization**: Generates context summaries when message count reaches thresholds
-- **Context Relationship Tracking**: Connects related conversations using vector similarity and graph relationships to maintain knowledge context
-- **API Call Analytics**: Tracks and analyzes API calls to vector and graph databases and LLM services for performance monitoring and optimization
+## Tools Implemented
 
-## Usage
+*   `ping`: Checks if the server is running.
+*   `add_message`: Adds a message to a specified context.
+*   `retrieve_context`: Retrieves messages, summary, and metadata for a context.
+*   `get_similar_contexts`: Finds contexts semantically similar to a query (requires `useVectorDb: true`).
+*   `add_relationship`: Adds a typed relationship between two contexts (requires `useGraphDb: true`).
+*   `get_related_contexts`: Retrieves contexts related to a given context based on type and direction (requires `useGraphDb: true`).
+*   `summarize_context`: Manually triggers summarization for a specified context (requires `autoSummarize: true` or `useVectorDb: true`).
 
-### NPX Installation
+## Setup and Installation
 
-```json
-{
-  "mcpServers": {
-    "Prompt Context": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "prompt-context",
-        "--config",
-        "{}"
-      ]
-    }
-  }
-}
-```
+1.  **Prerequisites:** Node.js (v18 or later recommended) and npm/yarn.
+2.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/your-username/prompt-context.git
+    cd prompt-context
+    ```
+3.  **Install dependencies:**
+    ```bash
+    npm install
+    # or
+    # yarn install
+    ```
+4.  **Build the project:**
+    ```bash
+    npm run build
+    ```
 
-### Docker
+## Running the Server
 
 ```bash
-docker build -t prompt-context .
+node dist/mcp-server.js
 ```
 
-```json
-{
-  "mcpServers": {
-    "Prompt Context": {
-      "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "prompt-context"
-      ]
-    }
-  }
-}
-```
-
-## MCP Tool
-
-Provides various tools for managing conversation context and relationships.
-
-**Available Tools:**
-
-*   **`ping`**: Simple ping/pong test to check server connectivity.
-    *   *No arguments needed.*
-
-*   **`add_message`**: Add a message (user or assistant) to a specific context. Creates the context if it doesn't exist.
-    *   `contextId` (string, required): Unique identifier for the context.
-    *   `message` (string, required): Message content to add.
-    *   `role` (enum, required): Role of the message sender ('user' or 'assistant').
-    *   `importance` (enum, optional, default: 'medium'): Importance level ('low', 'medium', 'high', 'critical').
-    *   `tags` (array of strings, optional, default: []): Tags associated with the message.
-
-*   **`retrieve_context`**: Retrieve all messages and the latest summary for a given context ID.
-    *   `contextId` (string, required): Unique identifier for the context to retrieve.
-
-*   **`get_similar_contexts`**: Find contexts that are semantically similar to a given query string using vector search.
-    *   `query` (string, required): Text to find similar contexts for.
-    *   `limit` (number, optional, default: 5): Maximum number of contexts to return.
-
-*   **`add_relationship`**: Add a directed relationship (e.g., similar, continues) between two contexts in the knowledge graph.
-    *   `sourceContextId` (string, required): Source context ID.
-    *   `targetContextId` (string, required): Target context ID.
-    *   `relationshipType` (enum, required): Type of relationship ('similar', 'continues', 'references', 'parent', 'child').
-    *   `weight` (number, optional, default: 0.8): Weight of the relationship (0.0 to 1.0).
-
-*   **`get_related_contexts`**: Get a list of context IDs that are related to a specific context, optionally filtering by relationship type and direction.
-    *   `contextId` (string, required): Context ID to find related contexts for.
-    *   `relationshipType` (enum, optional): Filter by relationship type ('similar', 'continues', 'references', 'parent', 'child').
-    *   `direction` (enum, optional, default: 'both'): Direction of relationships ('incoming', 'outgoing', 'both').
-
-*   **`summarize_context`**: Generate or update the summary for a given context ID. Returns the generated summary.
-    *   `contextId` (string, required): Context ID to generate summary for.
-
-## Documentation
-
-For more detailed information, please refer to the documentation in the `docs` directory:
-
-- [How It Works](docs/HOW_IT_WORKS.md) - Detailed explanation of the system architecture and technology choices
-- [Contributing](docs/CONTRIBUTING.md) - Guidelines for contributing to the project
+The server will start and listen for MCP requests via standard input/output.
 
 ## Configuration
 
-The MCP comes with reasonable defaults and works with zero configuration. However, if needed, you can initialize and configure the MCP:
+The server can be configured through multiple methods, prioritized in the following order:
 
-```bash
-# Initialize MCP in current directory (creates .mcp-config.json)
-npx prompt-context init
+1.  **CLI Arguments:**
+    *   `--port <number>`: Specify the HTTP port (if an HTTP transport is added later).
+    *   `--config '{"key": "value"}'`: Provide a JSON string to override specific configurations.
+2.  **Environment Variables:** Set environment variables corresponding to configuration keys (e.g., `CONTEXT_DIR`, `AUTO_SUMMARIZE=false`). Boolean values are parsed from `true`/`false`, numbers are parsed, and arrays/objects should be JSON strings.
+3.  **`.mcp-config.json` File:** Create a `.mcp-config.json` file in the base directory (`~/.mcp-servers/prompt-context` by default, or defined by `MCP_SERVER_BASE_DIR` env var). Example:
+    ```json
+    {
+      "contextDir": "/path/to/your/context/storage",
+      "autoSummarize": true,
+      "messageLimitThreshold": 15,
+      "useVectorDb": true,
+      "useGraphDb": true
+      // Add other config options here
+    }
+    ```
+4.  **Default Configuration:** If no other configuration is provided, the server uses default values defined in `src/mcp-server.ts`.
 
-# View current configuration
-npx prompt-context config
+**Key Configuration Options:**
 
-# Update a specific setting
-npx prompt-context config hierarchicalContext true
-```
+*   `contextDir`: (Required) Path to the directory where context data will be stored.
+*   `autoSummarize`: Enable/disable automatic background summarization.
+*   `messageLimitThreshold`: Number of messages before triggering auto-summarization.
+*   `tokenLimitPercentage`: Percentage of the model's token limit to use for summarization context.
+*   `useVectorDb`: Enable/disable vector database features (similarity search).
+*   `useGraphDb`: Enable/disable graph database features (context relationships).
+*   `trackApiCalls`: Enable/disable API call tracking for analytics.
 
-### Configuration Options
+See `src/types.ts` (`MCPConfig` interface) for all available options.
 
-The MCP server recognizes these configuration options:
+## Development
 
-| Option | Description | Default |
-|------|------|--------|
-| `messageLimitThreshold` | Message count threshold to trigger summary | 10 |
-| `tokenLimitPercentage` | Token count threshold as percentage of model limit | 80 |
-| `contextDir` | Context storage directory | '.prompt-context' |
-| `useGit` | Whether to use Git repository | true |
-| `ignorePatterns` | Patterns for files and directories to ignore | [] |
-| `autoSummarize` | Whether to enable automatic summarization | true |
-| `hierarchicalContext` | Enable hierarchical context management | true |
-| `metaSummaryThreshold` | Number of contexts before creating a meta-summary | 5 |
-| `maxHierarchyDepth` | Maximum hierarchical depth for meta-summaries | 3 |
-| `useVectorDb` | Enable vector similarity search | true |
-| `useGraphDb` | Enable graph-based context relationships | true |
-| `similarityThreshold` | Minimum similarity threshold for related contexts | 0.6 |
-| `autoCleanupContexts` | Enable automatic cleanup of irrelevant contexts | true |
-| `trackApiCalls` | Enable API call tracking and analytics | true |
-| `apiAnalyticsRetention` | Number of days to retain API call data | 30 |
-| `fallbackToKeywordMatch` | Whether to use keyword matching when vector search fails | true |
-| `port` | Port number for the server (if not running in MCP mode) | 6789 |
+*   **Run in development mode (with auto-rebuild):** `npm run dev`
+*   **Run tests:** `npm test` (Note: requires a running server instance if testing against a live server)
+*   **Lint code:** `npm run lint`
+*   **Clean build artifacts:** `npm run clean`
 
-## Using MCP in Team Environment
+## Contributing
 
-When using MCP in a team environment, it's important to consider how context data is managed:
-
-### Git Management Recommendations
-
-By default, MCP saves all context data in the `.prompt-context` directory within your project. In team environments, you should add this directory to your `.gitignore` file to avoid:
-
-1. Bloating your Git repository with conversation context
-2. Potential merge conflicts when multiple team members modify context
-3. Inadvertently sharing private or sensitive conversations
-4. Polluting commit history with context changes
-
-Add the following to your project's `.gitignore` file:
-
-```
-# MCP
-.prompt-context/
-```
+Contributions are welcome! Please open an issue or submit a pull request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+[MIT](./LICENSE)

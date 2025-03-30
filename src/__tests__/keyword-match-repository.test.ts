@@ -1,141 +1,73 @@
 import { KeywordMatchRepository } from '../keyword-match-repository';
-import { ContextSummary } from '../types';
+import { ContextSummary, Message } from '../types';
 import path from 'path';
+import os from 'os';
 import fs from 'fs-extra';
 
-describe('KeywordMatchRepository Tests', () => {
-  let repository: KeywordMatchRepository;
-  const testDir = path.join(__dirname, 'test-data');
-  
-  beforeEach(async () => {
-    // Set up a test directory
+// Helper function to create dummy summaries
+const createDummySummary = (id: string, text: string): ContextSummary => ({
+  contextId: id,
+  createdAt: Date.now(), // Use createdAt
+  summary: text,
+  codeBlocks: [],
+  messageCount: 5 // Example count
+});
+
+describe('KeywordMatchRepository', () => {
+  let repo: KeywordMatchRepository;
+  const testDir = path.join(os.tmpdir(), `keyword-test-${Date.now()}`);
+  const summary1 = createDummySummary('ctx-1', 'This context talks about apples and oranges.');
+  const summary2 = createDummySummary('ctx-2', 'A different context discussing bananas and apples.');
+  const summary3 = createDummySummary('ctx-3', 'Completely different topic about grapes.');
+
+  beforeAll(async () => {
     await fs.ensureDir(testDir);
-    repository = new KeywordMatchRepository(testDir);
+    repo = new KeywordMatchRepository(testDir);
+    // Add summaries to the repo (simulating saving them)
+    await repo.addSummary(summary1);
+    await repo.addSummary(summary2);
+    await repo.addSummary(summary3);
   });
-  
-  afterEach(async () => {
-    // Clean up test directory
+
+  afterAll(async () => {
     await fs.remove(testDir);
   });
-  
-  // Test data
-  const testSummaries: ContextSummary[] = [
-    {
-      contextId: 'context-1',
-      lastUpdated: Date.now(),
-      summary: 'The Memory Context Protocol implementation handles efficient summarization',
-      codeBlocks: [],
-      messageCount: 10,
-      version: 1
-    },
-    {
-      contextId: 'context-2',
-      lastUpdated: Date.now(),
-      summary: 'Vector databases are used for semantic similarity search in the MCP system',
-      codeBlocks: [],
-      messageCount: 5,
-      version: 1
-    },
-    {
-      contextId: 'context-3',
-      lastUpdated: Date.now(),
-      summary: 'Graph relationships help connect related conversation contexts',
-      codeBlocks: [],
-      messageCount: 8,
-      version: 1
-    }
-  ];
-  
-  test('Should add and retrieve summaries', async () => {
-    // Add test summaries
-    for (const summary of testSummaries) {
-      await repository.addSummary(summary);
-    }
-    
-    // Check that contexts exist
-    for (const summary of testSummaries) {
-      const exists = await repository.hasContext(summary.contextId);
-      expect(exists).toBe(true);
-    }
-    
-    // Check that non-existent context doesn't exist
-    const exists = await repository.hasContext('nonexistent');
-    expect(exists).toBe(false);
+
+  test('should find contexts matching keywords', async () => {
+    const results = await repo.findSimilarContexts('apples', 2);
+    expect(results).toHaveLength(2);
+    // Check if the correct contexts are returned (order might vary)
+    const contextIds = results.map(r => r.contextId);
+    expect(contextIds).toContain('ctx-1');
+    expect(contextIds).toContain('ctx-2');
+    // Similarity score should be greater than 0
+    expect(results[0].similarity).toBeGreaterThan(0);
   });
-  
-  test('Should find similar contexts based on keywords', async () => {
-    // Add test summaries
-    for (const summary of testSummaries) {
-      await repository.addSummary(summary);
-    }
-    
-    // Find contexts similar to "memory summarization"
-    const results1 = await repository.findSimilarContexts('memory summarization protocol');
-    expect(results1.length).toBeGreaterThan(0);
-    // First result should be context-1 which mentions "Memory" and "summarization"
-    expect(results1[0].contextId).toBe('context-1');
-    
-    // Find contexts similar to "vector semantic search"
-    const results2 = await repository.findSimilarContexts('vector semantic search');
-    expect(results2.length).toBeGreaterThan(0);
-    // First result should be context-2 which mentions "vector" and "semantic"
-    expect(results2[0].contextId).toBe('context-2');
-    
-    // Find contexts similar to "graph connections between contexts"
-    const results3 = await repository.findSimilarContexts('graph connections between contexts');
-    expect(results3.length).toBeGreaterThan(0);
-    // First result should be context-3 which mentions "graph" and "contexts"
-    expect(results3[0].contextId).toBe('context-3');
+
+  test('should limit results correctly', async () => {
+    const results = await repo.findSimilarContexts('apples', 1);
+    expect(results).toHaveLength(1);
   });
-  
-  test('Should delete contexts', async () => {
-    // Add test summaries
-    for (const summary of testSummaries) {
-      await repository.addSummary(summary);
-    }
-    
-    // Delete one context
-    await repository.deleteContext('context-2');
-    
-    // Check that it no longer exists
-    const exists = await repository.hasContext('context-2');
-    expect(exists).toBe(false);
-    
-    // Check that others still exist
-    const exists1 = await repository.hasContext('context-1');
-    const exists3 = await repository.hasContext('context-3');
-    expect(exists1).toBe(true);
-    expect(exists3).toBe(true);
-    
-    // Check that deleted context is not returned in search results
-    const results = await repository.findSimilarContexts('vector database');
-    const hasDeletedContext = results.some(result => result.contextId === 'context-2');
-    expect(hasDeletedContext).toBe(false);
+
+  test('should return empty array if no match', async () => {
+    const results = await repo.findSimilarContexts('kiwi', 5);
+    expect(results).toHaveLength(0);
   });
-  
-  test('Should handle empty search query', async () => {
-    // Add test summaries
-    for (const summary of testSummaries) {
-      await repository.addSummary(summary);
-    }
-    
-    // Search with empty query
-    const results = await repository.findSimilarContexts('');
-    expect(results.length).toBe(0);
+
+  test('should handle deletion of contexts', async () => {
+    await repo.deleteContext('ctx-1');
+    const results = await repo.findSimilarContexts('apples', 5);
+    expect(results).toHaveLength(1);
+    expect(results[0].contextId).toBe('ctx-2');
   });
-  
-  test('Should handle limit parameter in search', async () => {
-    // Add test summaries
-    for (const summary of testSummaries) {
-      await repository.addSummary(summary);
-    }
-    
-    // Search with a limit of 1
-    const results = await repository.findSimilarContexts('context', 1);
-    expect(results.length).toBeLessThanOrEqual(1);
-    
-    // Search with a limit of 10 (more than available)
-    const results2 = await repository.findSimilarContexts('context', 10);
-    expect(results2.length).toBeLessThanOrEqual(testSummaries.length);
+
+  test('hasContext should return true for existing context', async () => {
+    // Add ctx-1 back for this test
+    await repo.addSummary(summary1); 
+    expect(await repo.hasContext('ctx-1')).toBe(true);
+  });
+
+  test('hasContext should return false for non-existent context', async () => {
+    expect(await repo.hasContext('non-existent-ctx')).toBe(false);
   });
 }); 

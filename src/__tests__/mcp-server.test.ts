@@ -1,6 +1,6 @@
 import request from 'supertest';
 import express from 'express';
-import { MemoryContextProtocol } from '../mcp';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Message, ContextSummary, SimilarContext } from '../types';
 
 // 간단한 MCP 서버 테스트
@@ -149,4 +149,36 @@ describe('MCP Server', () => {
     ]);
     expect(mockMcp.findSimilarContexts).toHaveBeenCalledWith(query, 0.6);
   });
+});
+
+describe('MCP Server Tool Handlers', () => {
+  // Mock ContextService and its methods
+  const mockContextService = {
+    addMessage: jest.fn(),
+    getContext: jest.fn(),
+    findSimilarContexts: jest.fn(),
+    addRelationship: jest.fn(),
+    getRelatedContexts: jest.fn(),
+    triggerManualSummarization: jest.fn(),
+  };
+
+  // Mock the server initialization part or test the handlers directly
+  // This requires refactoring the test setup significantly
+
+  test.skip('add_message handler should call contextService.addMessage', async () => {
+    // TODO: Refactor this test to mock the McpServer and call the handler
+    //       or create a test instance of the server and invoke the tool.
+    // Example (conceptual):
+    // const server = setupMockServer(mockContextService);
+    // await server.invokeTool('add_message', { contextId: 'test', message: 'hello', role: 'user' });
+    // expect(mockContextService.addMessage).toHaveBeenCalledWith(/* ... */);
+  });
+
+  // Add similar skipped/TODO tests for other handlers:
+  test.skip('retrieve_context handler should call contextService.getContext', async () => {});
+  test.skip('get_similar_contexts handler should call contextService.findSimilarContexts', async () => {});
+  test.skip('add_relationship handler should call contextService.addRelationship', async () => {});
+  test.skip('get_related_contexts handler should call contextService.getRelatedContexts', async () => {});
+  test.skip('summarize_context handler should call contextService.triggerManualSummarization', async () => {});
+
 }); 

@@ -9,7 +9,6 @@ const defaultConfig: MCPConfig = {
   contextDir: '.prompt-context',
   messageLimitThreshold: 10,
   tokenLimitPercentage: 80,
-  useGit: false,
   ignorePatterns: [],
   autoSummarize: true,
   hierarchicalContext: true,

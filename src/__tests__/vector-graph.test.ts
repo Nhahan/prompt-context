@@ -5,6 +5,7 @@ import { VectorRepositoryInterface, createVectorRepository } from '../vector-rep
 import { GraphRepositoryInterface, createGraphRepository, ContextEdge } from '../graph-repository';
 import { ContextRelationshipType, ContextSummary, SimilarContext } from '../types';
 import { KeywordMatchRepository } from '../keyword-match-repository';
+import os from 'os';
 
 const TEST_DIR = './.test-vector-graph';
 const PORT = 6789;
@@ -21,7 +22,7 @@ describe('Vector and Graph Repository Tests', () => {
   // Test context summary
   const testSummary: ContextSummary = {
     contextId: 'test-vector-graph',
-    lastUpdated: Date.now(),
+    createdAt: Date.now(),
     summary: 'This is a test summary for vector and graph repository testing',
     codeBlocks: [],
     messageCount: 5,
@@ -31,7 +32,7 @@ describe('Vector and Graph Repository Tests', () => {
   // Test related context
   const relatedSummary: ContextSummary = {
     contextId: 'test-related-context',
-    lastUpdated: Date.now(),
+    createdAt: Date.now(),
     summary: 'This is a related test summary with similar content about repositories',
     codeBlocks: [],
     messageCount: 3,
@@ -41,7 +42,7 @@ describe('Vector and Graph Repository Tests', () => {
   // Unrelated context (different topic)
   const unrelatedSummary: ContextSummary = {
     contextId: 'test-unrelated-context',
-    lastUpdated: Date.now(),
+    createdAt: Date.now(),
     summary: 'This summary is about an entirely different topic not related to testing',
     codeBlocks: [],
     messageCount: 2,
@@ -123,7 +124,7 @@ describe('Vector and Graph Repository Tests', () => {
     // Add another context and relationship to create a path
     const intermediateSummary: ContextSummary = {
       contextId: 'test-intermediate-context',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'This is an intermediate context connecting others',
       codeBlocks: [],
       messageCount: 4,

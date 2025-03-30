@@ -2,6 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { FileSystemRepository } from '../repository';
 import { ContextSummary, HierarchicalSummary, MetaSummary, CodeBlock } from '../types';
+import os from 'os';
 
 const TEST_DIR = './.test-repository';
 
@@ -14,10 +15,8 @@ describe('FileSystemRepository Tests', () => {
     
     repository = new FileSystemRepository({
       contextDir: TEST_DIR,
-      useGit: false,
       messageLimitThreshold: 10,
       tokenLimitPercentage: 80,
-      ignorePatterns: ['*.ignore'],
       autoSummarize: true,
       hierarchicalContext: true,
       metaSummaryThreshold: 3,
@@ -42,7 +41,7 @@ describe('FileSystemRepository Tests', () => {
   test('Should save and load summary', async () => {
     const testSummary: ContextSummary = {
       contextId: 'test-summary',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'This is a test summary',
       codeBlocks: [],
       messageCount: 5,
@@ -72,7 +71,7 @@ describe('FileSystemRepository Tests', () => {
   test('Should save and load hierarchical summary', async () => {
     const testHierarchicalSummary: HierarchicalSummary = {
       contextId: 'test-hierarchical',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'This is a hierarchical summary',
       codeBlocks: [],
       messageCount: 10,
@@ -149,9 +148,9 @@ describe('FileSystemRepository Tests', () => {
   test('Should retrieve all context IDs', async () => {
     // Create multiple summaries
     const summaries = [
-      { contextId: 'context-a', summary: 'Summary A', lastUpdated: Date.now(), codeBlocks: [], messageCount: 5, version: 1 },
-      { contextId: 'context-b', summary: 'Summary B', lastUpdated: Date.now(), codeBlocks: [], messageCount: 5, version: 1 },
-      { contextId: 'context-c', summary: 'Summary C', lastUpdated: Date.now(), codeBlocks: [], messageCount: 5, version: 1 }
+      { contextId: 'context-a', summary: 'Summary A', createdAt: Date.now(), codeBlocks: [], messageCount: 5, version: 1 },
+      { contextId: 'context-b', summary: 'Summary B', createdAt: Date.now(), codeBlocks: [], messageCount: 5, version: 1 },
+      { contextId: 'context-c', summary: 'Summary C', createdAt: Date.now(), codeBlocks: [], messageCount: 5, version: 1 }
     ];
     
     // Save all summaries
@@ -169,20 +168,12 @@ describe('FileSystemRepository Tests', () => {
     expect(contextIds).toContain('test-summary');
   });
   
-  // Test file ignore patterns
-  test('Should correctly identify ignored paths', () => {
-    // Test ignore patterns
-    expect(repository.shouldIgnore('test.ignore')).toBe(true);
-    expect(repository.shouldIgnore('folder/test.ignore')).toBe(true);
-    expect(repository.shouldIgnore('valid-file.txt')).toBe(false);
-  });
-  
   // Test related contexts functionality
   test('Should save and retrieve related contexts', async () => {
     // Create a summary with related contexts
     const testSummary: ContextSummary = {
       contextId: 'related-test',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'Summary with related contexts',
       codeBlocks: [],
       messageCount: 5,

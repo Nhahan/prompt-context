@@ -52,11 +52,11 @@ export interface GraphRepositoryInterface {
   /**
    * Get all contexts that have a specific relationship with the given context
    * @param contextId Context ID
-   * @param type Relationship type
+   * @param type Optional: Relationship type to filter by
    * @param direction 'outgoing' for edges where contextId is the source, 'incoming' for edges where contextId is the target, 'both' for both directions
    * @returns Array of context IDs
    */
-  getRelatedContexts(contextId: string, type: ContextRelationshipType, direction: 'outgoing' | 'incoming' | 'both'): Promise<string[]>;
+  getRelatedContexts(contextId: string, type?: ContextRelationshipType, direction?: 'outgoing' | 'incoming' | 'both'): Promise<string[]>;
 }
 
 /**
@@ -467,64 +467,55 @@ export class GraphRepository implements GraphRepositoryInterface {
   
   /**
    * Get all contexts that have a specific relationship with the given context
-   * (This is the implementation for the interface method, often called by MCP directly)
+   * @param contextId Context ID
+   * @param type Optional: Relationship type to filter by
+   * @param direction 'outgoing' for edges where contextId is the source, 'incoming' for edges where contextId is the target, 'both' for both directions (default: 'both')
+   * @returns Array of context IDs
    */
   public async getRelatedContexts(
-    contextId: string, 
-    type: ContextRelationshipType, 
+    contextId: string,
+    type?: ContextRelationshipType,
     direction: 'outgoing' | 'incoming' | 'both' = 'both'
   ): Promise<string[]> {
-      return this.getRelatedContextsByType(contextId, type, direction);
-  }
-
-  /**
-   * Implementation to get related contexts based on type and direction
-   */
-  public async getRelatedContextsByType(
-    contextId: string, 
-    type: ContextRelationshipType, 
-    direction: 'outgoing' | 'incoming' | 'both' = 'both'
-  ): Promise<string[]> {
-    // Use GRAPH_DB_SEARCH for analytics tracking
+    // Revert analytics call type back to GRAPH_DB_SEARCH
     const endTracking = apiAnalytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, {
-      contextId,
-      type,
-      direction
+        contextId,
+        queryType: 'getRelatedContexts', // Keep descriptive queryType if needed
+        filterType: type,
+        direction
     });
-    
+
     try {
       await this.ensureInitialized();
       
-      // Use console.error for logging
-      console.error(`Getting related contexts for ${contextId}, type: ${type}, direction: ${direction}, edges: ${this.edges.length}`); 
+      console.error(`Getting related contexts for ${contextId}, type: ${type || 'any'}, direction: ${direction}`);
       
-      const relatedContexts = new Set<string>();
+      let relatedContextIds: string[] = [];
       
       this.edges.forEach(edge => {
-        if (edge.type === type) {
-          if (direction === 'outgoing' || direction === 'both') {
-            if (edge.source === contextId) {
-              relatedContexts.add(edge.target);
-            }
+        const typeMatch = !type || edge.type === type;
+        
+        if (!typeMatch) return;
+
+        if (direction === 'outgoing' || direction === 'both') {
+          if (edge.source === contextId && !relatedContextIds.includes(edge.target)) {
+            relatedContextIds.push(edge.target);
           }
-          if (direction === 'incoming' || direction === 'both') {
-            if (edge.target === contextId) {
-              relatedContexts.add(edge.source);
-            }
+        }
+        
+        if (direction === 'incoming' || direction === 'both') {
+          if (edge.target === contextId && !relatedContextIds.includes(edge.source)) {
+            relatedContextIds.push(edge.source);
           }
         }
       });
       
-      const result = Array.from(relatedContexts);
-      
-      // Use console.error for logging
-      console.error(`Found ${result.length} related contexts for ${contextId}`); 
-      
-      endTracking(); // End tracking
-      return result;
+      console.error(`Found ${relatedContextIds.length} related contexts for ${contextId}`);
+      endTracking();
+      return relatedContextIds;
     } catch (error) {
       console.error(`Error getting related contexts for ${contextId}:`, error);
-      endTracking(); // End tracking even if an error occurs
+      endTracking();
       throw error;
     }
   }

@@ -1,5 +1,9 @@
 import { VectorRepository } from '../vector-repository';
-import { ContextSummary } from '../types';
+import { ContextSummary, HierarchicalSummary, Message, CodeBlock, ContextImportance } from '../types';
+import path from 'path';
+import os from 'os';
+import fs from 'fs-extra';
+import { FileSystemRepository } from '../repository';
 
 /**
  * 테스트에서 사용하기 위한 VectorRepository 확장 클래스
@@ -23,7 +27,7 @@ export class TestVectorRepository extends VectorRepository {
     // 초기 데이터 추가
     const testSummary: ContextSummary = {
       contextId: 'test-context-1',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'This is a test summary for testing',
       codeBlocks: [],
       messageCount: 5,
@@ -32,7 +36,7 @@ export class TestVectorRepository extends VectorRepository {
     
     const testSummary2: ContextSummary = {
       contextId: 'test-context-2',
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary: 'This is another test summary',
       codeBlocks: [],
       messageCount: 3,
@@ -56,4 +60,88 @@ export class TestVectorRepository extends VectorRepository {
  */
 export function createTestVectorRepository(contextDir: string): TestVectorRepository {
   return new TestVectorRepository(contextDir);
+}
+
+// Centralized test data creation functions
+
+export function createMockMessages(count: number): Message[] {
+  return Array.from({ length: count }, (_, i) => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `Test message ${i + 1}. Importance: ${i % 3 === 0 ? 'high' : 'medium'}?`,
+    timestamp: Date.now() - (count - i) * 1000,
+    importance: i % 3 === 0 ? ContextImportance.HIGH : ContextImportance.MEDIUM
+  }));
+}
+
+export function createMockSummary(contextId: string, messageCount: number, suffix: string = ''): ContextSummary {
+  return {
+    contextId,
+    createdAt: Date.now() - 1000, // Use createdAt
+    summary: `This is a mock summary for ${contextId}${suffix}. It includes ${messageCount} messages.`,
+    codeBlocks: [
+      { language: 'typescript', code: `console.log('test ${contextId}');`, importance: 0.8 }
+    ],
+    messageCount,
+    version: 1,
+    keyInsights: [`Insight for ${contextId}`],
+    importanceScore: 0.75
+  };
+}
+
+export function createMockHierarchicalSummary(contextId: string, childCount: number): HierarchicalSummary {
+  const childIds = Array.from({ length: childCount }, (_, i) => `${contextId}-child${i + 1}`);
+  return {
+    contextId,
+    createdAt: Date.now() - 2000, // Use createdAt
+    summary: `Hierarchical mock summary for ${contextId} with ${childCount} children.`,
+    codeBlocks: [],
+    messageCount: childCount * 5, // Assuming 5 messages per child
+    version: 1,
+    hierarchyLevel: 1,
+    childContextIds: childIds,
+    importanceScore: 0.8
+  };
+}
+
+// Setup and teardown helpers
+
+let testRepoInstance: FileSystemRepository | null = null;
+let testDir: string | null = null;
+
+export async function setupTestRepository(): Promise<FileSystemRepository> {
+  if (!testRepoInstance) {
+    testDir = path.join(os.tmpdir(), `prompt-context-shared-tests-${Date.now()}`);
+    await fs.ensureDir(testDir);
+    const config = {
+      contextDir: testDir,
+      autoSummarize: false,
+      hierarchicalContext: true,
+      messageLimitThreshold: 10,
+      tokenLimitPercentage: 80,
+      metaSummaryThreshold: 5,
+      maxHierarchyDepth: 3,
+      useVectorDb: false,
+      useGraphDb: false,
+      debug: false,
+      similarityThreshold: 0.6,
+      autoCleanupContexts: false,
+      trackApiCalls: false,
+      apiAnalyticsRetention: 30,
+      fallbackToKeywordMatch: false,
+      port: 6789,
+      vectorDb: {},
+      summarizer: {}
+    };
+    testRepoInstance = new FileSystemRepository(config);
+    await testRepoInstance.initialize();
+  }
+  return testRepoInstance;
+}
+
+export async function cleanupTestRepository() {
+  if (testDir) {
+    await fs.remove(testDir);
+    testDir = null;
+    testRepoInstance = null;
+  }
 } 
