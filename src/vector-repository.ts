@@ -113,57 +113,55 @@ export class VectorRepository implements VectorRepositoryInterface {
    */
   private async init(): Promise<void> {
     if (this.initialized) return;
-    
+    // If fallback mode was somehow set before init, respect it
+    if (this.fallbackMode) return; 
+
     try {
-      // Create vector directory if it doesn't exist
       const vectorDir = path.join(this.contextDir, 'vectors');
       await fs.ensureDir(vectorDir);
-      
-      // 테스트 환경에서는 바로 폴백 모드로 전환
+
       if (process.env.NODE_ENV === 'test') {
         console.error('Test environment detected, using fallback mode for vector repository');
         this.fallbackMode = true;
-        this.initialized = true;
+        this.initialized = true; // Mark as initialized in test fallback mode
         return;
       }
-      
-      // Import dependencies dynamically to handle environments where they might not be available
+
+      // Import dependencies dynamically
       try {
         const hnswlib = await import('hnswlib-node');
-        
-        // Initialize vector index
         this.vectorIndex = new hnswlib.HierarchicalNSW('cosine', this.dimensions) as unknown as HierarchicalNSWIndex;
         
-        // Try to load existing index
         const indexPath = path.join(vectorDir, 'vector-index.bin');
         const mapPath = path.join(vectorDir, 'context-map.json');
-        
+
         if (await fs.pathExists(indexPath) && await fs.pathExists(mapPath)) {
           try {
-            // Load context map
             const contextMapData = await fs.readJson(mapPath);
             this.contextMap = new Map(Object.entries(contextMapData));
-            
-            // 안전한 nextIndex 계산
             const indices = Array.from(this.contextMap.values());
             this.nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 0;
-            
-            // Use loadIndex instead of readIndex
+             // Populate index<->contextId maps from loaded data
+            this.contextMap.forEach((index, contextId) => {
+                this.contextIdToIndex.set(contextId, index);
+                this.indexToContextId.set(index, contextId);
+            });
             this.vectorIndex.loadIndex(indexPath, this.contextIdToIndex.size, false);
             console.error(`Loaded vector index with ${this.vectorIndex.getCurrentCount()} elements (max: ${this.vectorIndex.getMaxElements()}). Next label: ${this.nextIndex}`);
           } catch (loadError) {
             console.error('Error loading vector index/map, creating a new one:', loadError);
-            await this.createNewIndex(vectorDir);
+            await this.createNewIndex(vectorDir); 
           }
         } else {
-          await this.createNewIndex(vectorDir);
+          await this.createNewIndex(vectorDir); 
         }
       } catch (hnswError) {
         console.error('Error initializing HNSW library:', hnswError);
         this.fallbackMode = true;
-        throw hnswError;
+        // Re-add the throw statement
+        throw hnswError; 
       }
-      
+
       // Load embedding model
       try {
         const { pipeline } = await import('@xenova/transformers');
@@ -172,14 +170,20 @@ export class VectorRepository implements VectorRepositoryInterface {
         console.error('Error loading embedding model:', modelError);
         this.fallbackMode = true; 
         console.warn('Switching to fallback mode due to embedding model loading failure');
+        // Original code did not throw here, keep it that way
       }
       
-      this.initialized = true;
+      // Mark as initialized only if no error was thrown before this point
+      this.initialized = true; 
+      console.error('Vector repository initialization attempt finished.'); // Log completion
+
     } catch (error) {
+      // This catch block handles the thrown hnswError or other unexpected errors
       this.initialized = false;
       this.fallbackMode = true;
       console.error('Vector repository initialization failed:', error);
-      throw error;
+      // Re-add the throw statement as per original logic before the optionalDeps change
+      throw error; 
     }
   }
   
