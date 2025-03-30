@@ -238,6 +238,97 @@ Retrieve related contexts by relationship type.
 }
 ```
 
+## Available Tools
+
+The server exposes the following tools via the MCP protocol:
+
+### `ping`
+
+*   **Description**: Simple ping/pong test to check server connectivity.
+*   **Input Schema**: None (empty object).
+*   **Output**: `pong`
+
+### `add_message`
+
+*   **Description**: Add a message (user or assistant) to a specific context. Creates the context if it doesn't exist.
+*   **Input Schema**:
+    *   `contextId` (string, required): Unique identifier for the context.
+    *   `message` (string, required): Message content to add.
+    *   `role` (enum, required): Role of the message sender ('user' or 'assistant').
+    *   `importance` (enum, optional, default: 'medium'): Importance level ('low', 'medium', 'high', 'critical').
+    *   `tags` (array of strings, optional, default: []): Tags associated with the message.
+*   **Output**: Confirmation message: `Message added to context: {contextId}`
+
+### `retrieve_context`
+
+*   **Description**: Retrieve all messages and the latest summary for a given context ID.
+*   **Input Schema**:
+    *   `contextId` (string, required): Unique identifier for the context to retrieve.
+*   **Output**: JSON string containing:
+    *   `contextId` (string): The requested context ID.
+    *   `messages` (array of Message objects): The messages stored in the context.
+    *   `summary` (ContextSummary object or null): The latest summary for the context.
+
+### `get_similar_contexts`
+
+*   **Description**: Find contexts that are semantically similar to a given query string using vector search.
+*   **Input Schema**:
+    *   `query` (string, required): Text to find similar contexts for.
+    *   `limit` (number, optional, default: 5): Maximum number of contexts to return.
+*   **Output**: JSON string containing an array of `SimilarContext` objects:
+    *   `contextId` (string): ID of the similar context.
+    *   `similarity` (number): Similarity score (typically between 0 and 1).
+
+### `add_relationship`
+
+*   **Description**: Add a directed relationship (e.g., similar, continues) between two contexts in the knowledge graph.
+*   **Input Schema**:
+    *   `sourceContextId` (string, required): Source context ID.
+    *   `targetContextId` (string, required): Target context ID.
+    *   `relationshipType` (enum, required): Type of relationship ('similar', 'continues', 'references', 'parent', 'child').
+    *   `weight` (number, optional, default: 0.8): Weight of the relationship (0.0 to 1.0).
+*   **Output**: Confirmation message: `Relationship added: {sourceContextId} -> {targetContextId} ({relationshipType})`
+
+### `get_related_contexts`
+
+*   **Description**: Get a list of context IDs that are related to a specific context, optionally filtering by relationship type and direction.
+*   **Input Schema**:
+    *   `contextId` (string, required): Context ID to find related contexts for.
+    *   `relationshipType` (enum, optional): Filter by relationship type ('similar', 'continues', 'references', 'parent', 'child').
+    *   `direction` (enum, optional, default: 'both'): Direction of relationships ('incoming', 'outgoing', 'both').
+*   **Output**: JSON string containing an array of context IDs (strings).
+
+### `summarize_context`
+
+*   **Description**: Generate or update the summary for a given context ID. Returns the generated summary text.
+*   **Input Schema**:
+    *   `contextId` (string, required): Context ID to generate summary for.
+*   **Output**: The generated summary text (string) or an error message if summarization failed.
+
+## Configuration Options
+
+The MCP server recognizes these configuration options, which can be set via environment variables or a `--config` argument with a JSON string. Environment variables take precedence.
+
+| Option | Environment Variable | Description | Default | CLI Argument Override |
+|---|---|---|---|---|
+| `messageLimitThreshold` | `MESSAGE_LIMIT_THRESHOLD` | Message count threshold to trigger summary | 10 | `--config '{"messageLimitThreshold": 20}'` |
+| `tokenLimitPercentage` | `TOKEN_LIMIT_PERCENTAGE` | Token count threshold as percentage of model limit | 80 | `--config '{"tokenLimitPercentage": 70}'` |
+| `contextDir` | `CONTEXT_DIR` | Context storage directory | '.prompt-context' | `--config '{"contextDir": "./my-context"}'` |
+| `useGit` | `USE_GIT` | Whether to use Git repository information (set to 'false' to disable) | true | `--config '{"useGit": false}'` |
+| `ignorePatterns` | `IGNORE_PATTERNS` (JSON string array) | Patterns for files and directories to ignore | [] | `--config '{"ignorePatterns": ["node_modules", ".*.log"]}'` |
+| `autoSummarize` | `AUTO_SUMMARIZE` | Whether to enable automatic summarization (set to 'false' to disable) | true | `--config '{"autoSummarize": false}'` |
+| `hierarchicalContext` | `HIERARCHICAL_CONTEXT` | Enable hierarchical context management (set to 'false' to disable) | true | `--config '{"hierarchicalContext": false}'` |
+| `metaSummaryThreshold` | `META_SUMMARY_THRESHOLD` | Number of contexts before creating a meta-summary | 5 | `--config '{"metaSummaryThreshold": 10}'` |
+| `maxHierarchyDepth` | `MAX_HIERARCHY_DEPTH` | Maximum hierarchical depth for meta-summaries | 3 | `--config '{"maxHierarchyDepth": 5}'` |
+| `useVectorDb` | `USE_VECTOR_DB` | Enable vector similarity search (set to 'false' to disable) | true | `--config '{"useVectorDb": false}'` |
+| `useGraphDb` | `USE_GRAPH_DB` | Enable graph-based context relationships (set to 'false' to disable) | true | `--config '{"useGraphDb": false}'` |
+| `similarityThreshold` | `SIMILARITY_THRESHOLD` | Minimum similarity threshold for related contexts | 0.6 | `--config '{"similarityThreshold": 0.7}'` |
+| `autoCleanupContexts` | `AUTO_CLEANUP_CONTEXTS` | Enable automatic cleanup of irrelevant contexts (set to 'false' to disable) | true | `--config '{"autoCleanupContexts": false}'` |
+| `trackApiCalls` | `TRACK_API_CALLS` | Enable API call tracking and analytics (set to 'false' to disable) | true | `--config '{"trackApiCalls": false}'` |
+| `apiAnalyticsRetention` | `API_ANALYTICS_RETENTION` | Number of days to retain API call data | 30 | `--config '{"apiAnalyticsRetention": 60}'` |
+| `fallbackToKeywordMatch` | `FALLBACK_TO_KEYWORD_MATCH` | Whether to use keyword matching when vector search fails (set to 'false' to disable) | true | `--config '{"fallbackToKeywordMatch": false}'` |
+| `port` | `PORT` | Port number for the server (if not running in MCP mode) | 6789 | `--port 8080` or `--config '{"port": 8080}'` |
+
 ## Data Models
 
 ### Message

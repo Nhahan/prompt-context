@@ -238,6 +238,97 @@ AI 에이전트가 컨텍스트를 관리하기 위한 주요 엔드포인트입
 }
 ```
 
+## 사용 가능한 도구
+
+서버는 MCP 프로토콜을 통해 다음 도구들을 노출합니다:
+
+### `ping`
+
+*   **설명**: 서버 연결 상태를 확인하는 간단한 ping/pong 테스트입니다.
+*   **입력 스키마**: 없음 (빈 객체).
+*   **출력**: `pong`
+
+### `add_message`
+
+*   **설명**: 특정 컨텍스트에 메시지(사용자 또는 어시스턴트)를 추가합니다. 컨텍스트가 존재하지 않으면 생성합니다.
+*   **입력 스키마**:
+    *   `contextId` (string, 필수): 컨텍스트의 고유 식별자입니다.
+    *   `message` (string, 필수): 추가할 메시지 내용입니다.
+    *   `role` (enum, 필수): 메시지 발신자의 역할 ('user' 또는 'assistant')입니다.
+    *   `importance` (enum, 선택, 기본값: 'medium'): 중요도 수준 ('low', 'medium', 'high', 'critical')입니다.
+    *   `tags` (string 배열, 선택, 기본값: []): 메시지와 연관된 태그입니다.
+*   **출력**: 확인 메시지: `Message added to context: {contextId}`
+
+### `retrieve_context`
+
+*   **설명**: 주어진 컨텍스트 ID에 대한 모든 메시지와 최신 요약을 검색합니다.
+*   **입력 스키마**:
+    *   `contextId` (string, 필수): 검색할 컨텍스트의 고유 식별자입니다.
+*   **출력**: 다음을 포함하는 JSON 문자열:
+    *   `contextId` (string): 요청된 컨텍스트 ID입니다.
+    *   `messages` (Message 객체 배열): 컨텍스트에 저장된 메시지입니다.
+    *   `summary` (ContextSummary 객체 또는 null): 컨텍스트의 최신 요약입니다.
+
+### `get_similar_contexts`
+
+*   **설명**: 벡터 검색을 사용하여 주어진 쿼리 문자열과 의미적으로 유사한 컨텍스트를 찾습니다.
+*   **입력 스키마**:
+    *   `query` (string, 필수): 유사한 컨텍스트를 찾기 위한 텍스트입니다.
+    *   `limit` (number, 선택, 기본값: 5): 반환할 최대 컨텍스트 수입니다.
+*   **출력**: `SimilarContext` 객체 배열을 포함하는 JSON 문자열:
+    *   `contextId` (string): 유사한 컨텍스트의 ID입니다.
+    *   `similarity` (number): 유사도 점수 (일반적으로 0과 1 사이)입니다.
+
+### `add_relationship`
+
+*   **설명**: 지식 그래프에서 두 컨텍스트 간의 방향성 관계(예: similar, continues)를 추가합니다.
+*   **입력 스키마**:
+    *   `sourceContextId` (string, 필수): 소스 컨텍스트 ID입니다.
+    *   `targetContextId` (string, 필수): 대상 컨텍스트 ID입니다.
+    *   `relationshipType` (enum, 필수): 관계 유형 ('similar', 'continues', 'references', 'parent', 'child')입니다.
+    *   `weight` (number, 선택, 기본값: 0.8): 관계의 가중치 (0.0 ~ 1.0)입니다.
+*   **출력**: 확인 메시지: `Relationship added: {sourceContextId} -> {targetContextId} ({relationshipType})`
+
+### `get_related_contexts`
+
+*   **설명**: 특정 컨텍스트와 관련된 컨텍스트 ID 목록을 가져옵니다. 선택적으로 관계 유형 및 방향으로 필터링할 수 있습니다.
+*   **입력 스키마**:
+    *   `contextId` (string, 필수): 관련 컨텍스트를 찾을 컨텍스트 ID입니다.
+    *   `relationshipType` (enum, 선택): 관계 유형으로 필터링 ('similar', 'continues', 'references', 'parent', 'child').
+    *   `direction` (enum, 선택, 기본값: 'both'): 관계 방향 ('incoming', 'outgoing', 'both').
+*   **출력**: 컨텍스트 ID (문자열) 배열을 포함하는 JSON 문자열입니다.
+
+### `summarize_context`
+
+*   **설명**: 주어진 컨텍스트 ID에 대한 요약을 생성하거나 업데이트합니다. 생성된 요약 텍스트를 반환합니다.
+*   **입력 스키마**:
+    *   `contextId` (string, 필수): 요약을 생성할 컨텍스트 ID입니다.
+*   **출력**: 생성된 요약 텍스트 (문자열) 또는 요약 실패 시 오류 메시지입니다.
+
+## 구성 옵션
+
+MCP 서버는 다음 구성 옵션을 인식합니다. 이 옵션들은 환경 변수 또는 JSON 문자열과 함께 `--config` 인수를 통해 설정할 수 있습니다. 환경 변수가 우선 적용됩니다.
+
+| 옵션 | 환경 변수 | 설명 | 기본값 | CLI 인수 재정의 |
+|---|---|---|---|---|
+| `messageLimitThreshold` | `MESSAGE_LIMIT_THRESHOLD` | 요약을 트리거하는 메시지 수 임계값 | 10 | `--config '{"messageLimitThreshold": 20}'` |
+| `tokenLimitPercentage` | `TOKEN_LIMIT_PERCENTAGE` | 모델 제한의 백분율로 표시되는 토큰 수 임계값 | 80 | `--config '{"tokenLimitPercentage": 70}'` |
+| `contextDir` | `CONTEXT_DIR` | 컨텍스트 저장 디렉토리 | '.prompt-context' | `--config '{"contextDir": "./my-context"}'` |
+| `useGit` | `USE_GIT` | Git 리포지토리 정보 사용 여부 ('false'로 설정하여 비활성화) | true | `--config '{"useGit": false}'` |
+| `ignorePatterns` | `IGNORE_PATTERNS` (JSON 문자열 배열) | 무시할 파일 및 디렉토리 패턴 | [] | `--config '{"ignorePatterns": ["node_modules", ".*.log"]}'` |
+| `autoSummarize` | `AUTO_SUMMARIZE` | 자동 요약 활성화 여부 ('false'로 설정하여 비활성화) | true | `--config '{"autoSummarize": false}'` |
+| `hierarchicalContext` | `HIERARCHICAL_CONTEXT` | 계층적 컨텍스트 관리 활성화 ('false'로 설정하여 비활성화) | true | `--config '{"hierarchicalContext": false}'` |
+| `metaSummaryThreshold` | `META_SUMMARY_THRESHOLD` | 메타 요약을 생성하기 전 컨텍스트 수 | 5 | `--config '{"metaSummaryThreshold": 10}'` |
+| `maxHierarchyDepth` | `MAX_HIERARCHY_DEPTH` | 메타 요약의 최대 계층 깊이 | 3 | `--config '{"maxHierarchyDepth": 5}'` |
+| `useVectorDb` | `USE_VECTOR_DB` | 벡터 유사도 검색 활성화 ('false'로 설정하여 비활성화) | true | `--config '{"useVectorDb": false}'` |
+| `useGraphDb` | `USE_GRAPH_DB` | 그래프 기반 컨텍스트 관계 활성화 ('false'로 설정하여 비활성화) | true | `--config '{"useGraphDb": false}'` |
+| `similarityThreshold` | `SIMILARITY_THRESHOLD` | 관련 컨텍스트의 최소 유사도 임계값 | 0.6 | `--config '{"similarityThreshold": 0.7}'` |
+| `autoCleanupContexts` | `AUTO_CLEANUP_CONTEXTS` | 관련 없는 컨텍스트의 자동 정리 활성화 ('false'로 설정하여 비활성화) | true | `--config '{"autoCleanupContexts": false}'` |
+| `trackApiCalls` | `TRACK_API_CALLS` | API 호출 추적 및 분석 활성화 ('false'로 설정하여 비활성화) | true | `--config '{"trackApiCalls": false}'` |
+| `apiAnalyticsRetention` | `API_ANALYTICS_RETENTION` | API 호출 데이터 보존 일수 | 30 | `--config '{"apiAnalyticsRetention": 60}'` |
+| `fallbackToKeywordMatch` | `FALLBACK_TO_KEYWORD_MATCH` | 벡터 검색 실패 시 키워드 매칭 사용 여부 ('false'로 설정하여 비활성화) | true | `--config '{"fallbackToKeywordMatch": false}'` |
+| `port` | `PORT` | 서버 포트 번호 (MCP 모드가 아닐 경우) | 6789 | `--port 8080` 또는 `--config '{"port": 8080}'` |
+
 ## 데이터 모델
 
 ### 메시지 (Message)

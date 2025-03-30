@@ -19,11 +19,13 @@ An MCP protocol that helps AI agents efficiently remember and utilize previous c
 ```json
 {
   "mcpServers": {
-    "prompt-context": {
+    "Prompt Context": {
       "command": "npx",
       "args": [
         "-y",
-        "prompt-context"
+        "prompt-context",
+        "--config",
+        "{}"
       ]
     }
   }
@@ -39,7 +41,7 @@ docker build -t prompt-context .
 ```json
 {
   "mcpServers": {
-    "prompt-context": {
+    "Prompt Context": {
       "command": "docker",
       "args": [
         "run",
@@ -54,24 +56,40 @@ docker build -t prompt-context .
 
 ## MCP Tool
 
-### context_memory
+Provides various tools for managing conversation context and relationships.
 
-Allows AI agents to maintain and retrieve conversation context for different files or topics.
+**Available Tools:**
 
-**Inputs:**
+*   **`ping`**: Simple ping/pong test to check server connectivity.
+    *   *No arguments needed.*
 
-- `action` (string): The action to perform - 'add', 'retrieve', 'summarize', 'get_related', 'get_hierarchy', 'get_meta', 'find_similar', 'add_relationship', 'find_path', or 'cleanup'
-- `contextId` (string): The identifier for the context (typically a file path or topic name)
-- `role` (string, for 'add' action): Role of the message sender ('user' or 'assistant')
-- `content` (string, for 'add' action): Content of the message
-- `importance` (string, for 'add' action): Importance level ('low', 'medium', 'high', or 'critical')
-- `tags` (array of strings, for 'add' action): Tags for message categorization
-- `metaId` (string, for 'get_meta' action): Meta-summary ID to retrieve
-- `searchText` (string, for 'find_similar' action): Text to search for similar contexts
-- `limit` (number, for 'find_similar' action): Maximum number of results to return
-- `targetId` (string, for relationship actions): Target context ID for relationship operations
-- `relationshipType` (string, for 'add_relationship' action): Type of relationship ('similar', 'continues', 'references', 'parent', 'child')
-- `strength` (number, for 'add_relationship' action): Strength of relationship (0-1)
+*   **`add_message`**: Add a message (user or assistant) to a specific context. Creates the context if it doesn't exist.
+    *   `contextId` (string, required): Unique identifier for the context.
+    *   `message` (string, required): Message content to add.
+    *   `role` (enum, required): Role of the message sender ('user' or 'assistant').
+    *   `importance` (enum, optional, default: 'medium'): Importance level ('low', 'medium', 'high', 'critical').
+    *   `tags` (array of strings, optional, default: []): Tags associated with the message.
+
+*   **`retrieve_context`**: Retrieve all messages and the latest summary for a given context ID.
+    *   `contextId` (string, required): Unique identifier for the context to retrieve.
+
+*   **`get_similar_contexts`**: Find contexts that are semantically similar to a given query string using vector search.
+    *   `query` (string, required): Text to find similar contexts for.
+    *   `limit` (number, optional, default: 5): Maximum number of contexts to return.
+
+*   **`add_relationship`**: Add a directed relationship (e.g., similar, continues) between two contexts in the knowledge graph.
+    *   `sourceContextId` (string, required): Source context ID.
+    *   `targetContextId` (string, required): Target context ID.
+    *   `relationshipType` (enum, required): Type of relationship ('similar', 'continues', 'references', 'parent', 'child').
+    *   `weight` (number, optional, default: 0.8): Weight of the relationship (0.0 to 1.0).
+
+*   **`get_related_contexts`**: Get a list of context IDs that are related to a specific context, optionally filtering by relationship type and direction.
+    *   `contextId` (string, required): Context ID to find related contexts for.
+    *   `relationshipType` (enum, optional): Filter by relationship type ('similar', 'continues', 'references', 'parent', 'child').
+    *   `direction` (enum, optional, default: 'both'): Direction of relationships ('incoming', 'outgoing', 'both').
+
+*   **`summarize_context`**: Generate or update the summary for a given context ID. Returns the generated summary.
+    *   `contextId` (string, required): Context ID to generate summary for.
 
 ## Documentation
 
@@ -117,6 +135,7 @@ The MCP server recognizes these configuration options:
 | `trackApiCalls` | Enable API call tracking and analytics | true |
 | `apiAnalyticsRetention` | Number of days to retain API call data | 30 |
 | `fallbackToKeywordMatch` | Whether to use keyword matching when vector search fails | true |
+| `port` | Port number for the server (if not running in MCP mode) | 6789 |
 
 ## Using MCP in Team Environment
 
