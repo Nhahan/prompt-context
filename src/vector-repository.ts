@@ -442,7 +442,15 @@ export class VectorRepository implements VectorRepositoryInterface {
     }
 
     try {
-      const embedding = await this.generateEmbedding(summary.summary);
+      // Extract the summary TEXT from the input object
+      const textToEmbed = summary.summary; 
+      if (!textToEmbed) {
+          console.error(`Summary text is missing for context ${summary.contextId}, cannot generate embedding.`);
+          return;
+      }
+      
+      // Generate embedding from the extracted text
+      const embedding = await this.generateEmbedding(textToEmbed);
       if (!embedding) {
           console.error(`Failed to generate embedding for context ${summary.contextId}, cannot add to index.`);
           return;

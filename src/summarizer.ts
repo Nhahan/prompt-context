@@ -2,18 +2,29 @@ import {
   CodeBlock, 
   ContextSummary, 
   Message, 
-  SummaryResult, 
+  SummaryResult,
   HierarchicalSummary,
   MetaSummary,
   ContextImportance,
-  SummarizerService
+  SummarizerService,
+  ApiCallType
 } from './types';
+import { ApiAnalytics } from './analytics';
+import { VectorRepository } from './vector-repository';
+import { GraphRepository } from './graph-repository';
+import { calculateTokens } from './tokenizer';
 
 /**
  * Base summarizer service implementation
  * Users must implement their own integration with actual AI models
  */
 export abstract class BaseSummarizer implements SummarizerService {
+  protected tokenPercentage: number;
+
+  constructor(tokenPercentage: number = 80) {
+    this.tokenPercentage = Math.max(0, Math.min(100, tokenPercentage));
+  }
+
   /**
    * Extract code blocks from messages
    * @param messages Array of messages
@@ -100,7 +111,9 @@ export abstract class BaseSummarizer implements SummarizerService {
     contextId: string,
     summary: string,
     messages: Message[],
-    version = 1
+    version = 1,
+    tokensUsed?: number,
+    tokenLimit?: number
   ): ContextSummary {
     const codeBlocks = this.extractCodeBlocks(messages);
     const keyInsights = this.extractKeyInsights(messages);
@@ -108,13 +121,15 @@ export abstract class BaseSummarizer implements SummarizerService {
     
     return {
       contextId,
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary,
       codeBlocks,
       messageCount: messages.length,
       version,
       keyInsights,
-      importanceScore
+      importanceScore,
+      tokensUsed,
+      tokenLimit
     };
   }
   
@@ -171,7 +186,7 @@ export abstract class BaseSummarizer implements SummarizerService {
     
     return {
       contextId: parentId,
-      lastUpdated: Date.now(),
+      createdAt: Date.now(),
       summary,
       codeBlocks: allCodeBlocks,
       messageCount: totalMessageCount,
@@ -269,7 +284,7 @@ export abstract class BaseSummarizer implements SummarizerService {
       // Return a basic fallback summary
       return {
         contextId: parentId,
-        lastUpdated: Date.now(),
+        createdAt: Date.now(),
         summary: `Failed to create detailed hierarchical summary for ${summaries.length} contexts.`,
         codeBlocks: [],
         messageCount: summaries.reduce((sum, s) => sum + s.messageCount, 0),
@@ -308,7 +323,7 @@ export abstract class BaseSummarizer implements SummarizerService {
           // 요약을 계층적 요약으로 변환
           const summary = {
             contextId,
-            lastUpdated: Date.now(),
+            createdAt: Date.now(),
             summary: `Context for ${contextId}`,
             codeBlocks: [],
             messageCount: 0,
@@ -405,6 +420,10 @@ export abstract class BaseSummarizer implements SummarizerService {
     // Default
     return ContextImportance.MEDIUM;
   }
+
+  protected calculateTokenLimit(modelTokenCapacity: number): number {
+    return Math.floor(modelTokenCapacity * (this.tokenPercentage / 100));
+  }
 }
 
 /**
@@ -419,30 +438,25 @@ export class SimpleTextSummarizer extends BaseSummarizer {
    * @returns Summary result
    */
   async summarize(messages: Message[], contextId: string): Promise<SummaryResult> {
+    let success = false;
+    let summary: ContextSummary | undefined;
+    let errorMsg: string | undefined;
+    let tokensUsed: number | undefined;
     try {
-      if (!messages || messages.length === 0) {
-        return { success: false, error: 'No messages to summarize' };
-      }
-
-      // Simple summary: string containing message count and recent topics
-      const lastUserMessage = messages
-        .filter(m => m.role === 'user')
-        .slice(-3)
-        .map(m => m.content.substring(0, 100) + (m.content.length > 100 ? '...' : ''))
-        .join(' | ');
-
-      const summary = `Summary of ${messages.length} messages for context ${contextId}. Recent topics: ${lastUserMessage}`;
-      const summaryObject = this.createSummaryObject(contextId, summary, messages);
-      
-      return { success: true, summary: summaryObject };
+      if (!messages || messages.length === 0) { throw new Error('No messages to summarize'); }
+      const lastUserMessage = messages.filter(m => m.role === 'user').slice(-3).map(m => m.content.substring(0, 100) + (m.content.length > 100 ? '...' : '')).join(' | ');
+      const summaryText = `Summary of ${messages.length} messages for context ${contextId}. Recent topics: ${lastUserMessage}`;
+      tokensUsed = calculateTokens(summaryText);
+      const tokenLimit = undefined;
+      summary = this.createSummaryObject(contextId, summaryText, messages, 1, tokensUsed, tokenLimit);
+      success = true;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`Error summarizing context ${contextId}:`, errorMessage);
-      return { 
-        success: false, 
-        error: errorMessage
-      };
+      errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Error summarizing context ${contextId}:`, errorMsg);
+      success = false;
     }
+    // Return without fallback
+    return { success, summary, error: errorMsg, tokensUsed }; 
   }
   
   /**
@@ -484,7 +498,7 @@ export class SimpleTextSummarizer extends BaseSummarizer {
       // Return a basic fallback summary
       return {
         contextId: parentId,
-        lastUpdated: Date.now(),
+        createdAt: Date.now(),
         summary: `Failed to create detailed hierarchical summary for ${summaries.length} contexts.`,
         codeBlocks: [],
         messageCount: summaries.reduce((sum, s) => sum + s.messageCount, 0),
@@ -515,7 +529,7 @@ export class SimpleTextSummarizer extends BaseSummarizer {
       // For simplicity, we're creating dummy hierarchies
       const dummyHierarchies: HierarchicalSummary[] = contextIds.map((id, index) => ({
         contextId: id,
-        lastUpdated: Date.now(),
+        createdAt: Date.now(),
         summary: `Dummy summary for hierarchy ${index + 1}`,
         codeBlocks: [],
         messageCount: 0,
@@ -570,38 +584,24 @@ export class AIModelSummarizer extends BaseSummarizer {
    * @returns Summary result
    */
   async summarize(messages: Message[], contextId: string): Promise<SummaryResult> {
+    let summary: ContextSummary | undefined;
+    let errorMsg: string | undefined;
+    let success = false;
+    let tokensUsed: number | undefined;
     try {
-      if (!messages || messages.length === 0) {
-        return { success: false, error: 'No messages to summarize' };
-      }
-      
-      // Call the AI model for summarization
+      if (!messages || messages.length === 0) { throw new Error('No messages to summarize'); }
       const summaryText = await this.summarizeWithAI(messages, contextId);
-      
-      if (!summaryText) {
-        return { 
-          success: false, 
-          error: 'AI model returned empty summary' 
-        };
-      }
-      
-      // Create summary object with AI-generated summary
-      const summaryObject = this.createSummaryObject(contextId, summaryText, messages);
-      
-      return { success: true, summary: summaryObject };
+      if (!summaryText) { throw new Error('AI model returned empty summary'); }
+      const tokenLimit = this.calculateTokenLimit(16385);
+      summary = this.createSummaryObject(contextId, summaryText, messages, 1, tokensUsed, tokenLimit);
+      success = true;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`Error in AI summarization for context ${contextId}:`, errorMessage);
-      
-      // Create fallback summary
-      const fallbackSummary = await this.createFallbackSummary(messages, contextId);
-      
-      return { 
-        success: false, 
-        error: errorMessage,
-        fallback: fallbackSummary
-      };
+      errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Error in AI summarization for context ${contextId}:`, errorMsg);
+      success = false;
     }
+    // Return result without fallback property
+    return { success, summary, error: errorMsg, tokensUsed }; 
   }
   
   /**
@@ -671,25 +671,16 @@ export class CustomAISummarizer extends BaseSummarizer {
    * @returns Summary result
    */
   async summarize(messages: Message[], contextId: string): Promise<SummaryResult> {
+    let summary: ContextSummary | undefined;
+    let errorMsg: string | undefined;
+    let success = false;
+    let tokensUsed: number | undefined;
+    let summaryText: string | null = null;
+    let lastError: Error | null = null;
     try {
-      if (!messages || messages.length === 0) {
-        return { success: false, error: 'No messages to summarize' };
-      }
-      
-      // Format messages for the prompt
-      const formattedMessages = messages
-        .map(m => `${m.role.toUpperCase()}: ${m.content}`)
-        .join('\n\n');
-      
-      // Create prompt from template
-      const prompt = this.summaryTemplate
-        .replace('{contextId}', contextId)
-        .replace('{messages}', formattedMessages);
-      
-      // 최대 3번까지 LLM API 호출 재시도
-      let summaryText: string | null = null;
-      let lastError: Error | null = null;
-      
+      if (!messages || messages.length === 0) { throw new Error('No messages to summarize'); }
+      const formattedMessages = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+      const prompt = this.summaryTemplate.replace('{contextId}', contextId).replace('{messages}', formattedMessages);
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           console.log(`Calling LLM API for summary (attempt ${attempt}/3)...`);
@@ -735,16 +726,17 @@ export class CustomAISummarizer extends BaseSummarizer {
         return { 
           success: false, 
           error: lastError?.message || 'LLM API failed to generate summary', 
-          fallback: fallbackResult.summary 
+          summary: fallbackResult.summary
         };
       }
       
       // 성공했을 경우 요약 객체 생성
-      const summaryObject = this.createSummaryObject(contextId, summaryText, messages);
-      return { success: true, summary: summaryObject };
+      const tokenLimit = this.calculateTokenLimit(16385);
+      summary = this.createSummaryObject(contextId, summaryText, messages, 1, tokensUsed, tokenLimit);
+      success = true;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`Error in custom AI summarization for context ${contextId}:`, errorMessage);
+      errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Error in custom AI summarization for context ${contextId}:`, errorMsg);
       
       // 폴백 요약기 사용
       const fallbackSummarizer = new SimpleTextSummarizer();
@@ -752,10 +744,12 @@ export class CustomAISummarizer extends BaseSummarizer {
       
       return { 
         success: false, 
-        error: errorMessage,
-        fallback: fallbackResult.summary
+        error: errorMsg,
+        summary: fallbackResult.summary
       };
     }
+    // Return result without fallback property
+    return { success, summary, error: errorMsg, tokensUsed };
   }
   
   /**
@@ -815,3 +809,100 @@ export class CustomAISummarizer extends BaseSummarizer {
     }
   }
 }
+
+/**
+ * Default Summarizer (Placeholder)
+ */
+export class Summarizer extends BaseSummarizer { 
+    private analytics?: ApiAnalytics | null;
+    private vectorRepository?: VectorRepository | null;
+    private graphRepository?: GraphRepository | null;
+
+    constructor(
+        tokenPercentage: number = 80, 
+        analytics?: ApiAnalytics | null, 
+        vectorRepository?: VectorRepository | null,
+        graphRepository?: GraphRepository | null
+    ) {
+        super(tokenPercentage);
+        this.analytics = analytics;
+        this.vectorRepository = vectorRepository;
+        this.graphRepository = graphRepository;
+        console.error(`[Summarizer] Initialized with token limit: ${tokenPercentage}%`);
+    }
+
+    async summarize(messages: Message[], contextId: string): Promise<SummaryResult> {
+        console.warn(`[Summarizer] Placeholder summarize called for ${contextId}. Using SimpleTextSummarizer.`);
+        const stopTracking = this.analytics?.trackCall(ApiCallType.LLM_SUMMARIZE, { contextId, messagesCount: messages.length });
+        // Initialize result before try block
+        let result: SummaryResult = { success: false }; 
+        try {
+            // Delegate to SimpleTextSummarizer for placeholder behavior
+            const simpleSummarizer = new SimpleTextSummarizer(this.tokenPercentage);
+            result = await simpleSummarizer.summarize(messages, contextId);
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`[Summarizer] Error during simple summarization delegation:`, errorMsg);
+            // Update result with error information in case of catch
+            result = { success: false, error: errorMsg }; 
+        }
+        finally {
+             // Stop analytics tracking correctly
+             if (stopTracking) {
+                 stopTracking(); 
+             }
+            // Now result is guaranteed to be assigned
+            console.log(`[Summarizer] Analytics tracking stopped for summarize (${result.success ? 'success' : 'failure'})`);
+        }
+        return result; 
+    }
+
+    // --- Methods below likely belong in MCP class or Repository --- 
+    // These were part of the old MemoryContextProtocol class structure
+    // They rely on repository access and trigger conditions, better handled elsewhere.
+
+    /* 
+    async summarizeContextIfNeeded(contextId: string, repository: FileSystemRepository): Promise<boolean> {
+      const context = await repository.loadContextData(contextId);
+      if (!context || context.messagesSinceLastSummary < this.messageLimitThreshold) {
+        return false;
+      }
+      
+      const tokenLimit = 8192 * (this.tokenLimitPercentage / 100); // Example token limit
+      if (context.tokenCount < tokenLimit && context.messagesSinceLastSummary < this.messageLimitThreshold) {
+           return false;
+      }
+
+      console.error(`[Summarizer] Triggering summarization for ${contextId}`);
+      const messages = await repository.loadMessages(contextId);
+      if (!messages || messages.length === 0) {
+          console.error(`[Summarizer] No messages found for ${contextId}, skipping summarization.`);
+          return false;
+      }
+
+      const result = await this.summarize(messages, contextId);
+      
+      if (result.success && result.summary) {
+          await repository.saveSummary(contextId, result.summary);
+          await repository.updateContextData(contextId, { 
+              messagesSinceLastSummary: 0, 
+              hasSummary: true,
+              lastSummarizedAt: Date.now(),
+              // Optionally update importance score based on summary
+              importanceScore: result.summary.importanceScore 
+          });
+          console.error(`[Summarizer] Summary saved successfully for ${contextId}`);
+          return true;
+      } else {
+          console.error(`[Summarizer] Summarization failed for ${contextId}: ${result.error}`);
+          return false;
+      }
+    }
+    */
+
+    // Other methods like createHierarchicalSummary, createMetaSummary, analyzeMessageImportance
+    // would also need concrete implementations here if this class were to handle them.
+}
+
+// Keep BaseSummarizer export if it's intended to be used elsewhere
+// export { BaseSummarizer };

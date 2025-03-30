@@ -3,31 +3,29 @@
  */
 export interface MCPConfig {
   /** Message count threshold to trigger summarization */
-  messageLimitThreshold: number;
+  messageLimitThreshold?: number;
   /** Token count threshold to trigger summarization (percentage of model limit) */
-  tokenLimitPercentage: number;
+  tokenLimitPercentage?: number;
   /** Directory to store context data */
   contextDir: string;
-  /** Whether to use Git repository integration */
-  useGit: boolean;
   /** Patterns for files and directories to ignore */
   ignorePatterns: string[];
   /** Whether to enable automatic summarization */
-  autoSummarize: boolean;
+  autoSummarize?: boolean;
   /** Enable hierarchical context management */
-  hierarchicalContext: boolean;
+  hierarchicalContext?: boolean;
   /** Number of contexts before creating a meta-summary */
-  metaSummaryThreshold: number;
+  metaSummaryThreshold?: number;
   /** Maximum hierarchical depth for meta-summaries */
-  maxHierarchyDepth: number;
+  maxHierarchyDepth?: number;
   /** Whether to use vector database for similarity search */
-  useVectorDb: boolean;
+  useVectorDb?: boolean;
   /** Whether to use graph database for context relationships */
-  useGraphDb: boolean;
+  useGraphDb?: boolean;
   /** Similarity threshold for automatic relationship detection */
-  similarityThreshold: number;
+  similarityThreshold?: number;
   /** Whether to automatically clean up irrelevant contexts */
-  autoCleanupContexts: boolean;
+  autoCleanupContexts?: boolean;
   /** Whether to track API calls for analytics */
   trackApiCalls?: boolean;
   /** Number of days to retain API call data */
@@ -40,6 +38,8 @@ export interface MCPConfig {
   summarizer?: SummarizerConfig;
   /** Debug flag */
   debug?: boolean;
+  /** Whether to fallback to keyword match when primary summarization fails */
+  fallbackToKeywordMatch?: boolean;
 }
 
 /**
@@ -61,6 +61,21 @@ export enum ContextRelationshipType {
   REFERENCES = 'references',
   PARENT = 'parent',
   CHILD = 'child'
+}
+
+/**
+ * API call type definition
+ */
+export enum ApiCallType {
+  VECTOR_DB_ADD = 'vector_db_add',
+  VECTOR_DB_SEARCH = 'vector_db_search',
+  VECTOR_DB_DELETE = 'vector_db_delete',
+  GRAPH_DB_ADD = 'graph_db_add',
+  GRAPH_DB_SEARCH = 'graph_db_search',
+  GRAPH_DB_DELETE = 'graph_db_delete',
+  LLM_SUMMARIZE = 'llm_summarize',
+  LLM_HIERARCHICAL_SUMMARIZE = 'llm_hierarchical_summarize',
+  LLM_META_SUMMARIZE = 'llm_meta_summarize'
 }
 
 /**
@@ -86,7 +101,7 @@ export interface ContextSummary {
   /** Context ID (typically a file path) */
   contextId: string;
   /** Summary generation timestamp */
-  lastUpdated: number;
+  createdAt: number;
   /** Summary content */
   summary: string;
   /** Code blocks in the context */
@@ -94,13 +109,17 @@ export interface ContextSummary {
   /** Number of messages included in the summary */
   messageCount: number;
   /** Summary version */
-  version: number;
+  version?: number;
   /** Key insights extracted from conversation */
   keyInsights?: string[];
   /** Importance score for this context */
   importanceScore?: number;
   /** Related context IDs */
   relatedContexts?: string[];
+  /** Tokens used to generate the summary */
+  tokensUsed?: number;
+  /** Token limit assumed for the model during generation */
+  tokenLimit?: number;
 }
 
 /**
@@ -199,10 +218,14 @@ export interface CodeBlock {
 export interface ContextData {
   /** Context ID */
   contextId: string;
+  /** Complete context metadata */
+  metadata: ContextMetadata;
   /** Message history */
   messages: Message[];
+  /** Optional context summary */
+  summary?: ContextSummary | null;
   /** Current token count */
-  tokenCount: number;
+  tokenCount?: number;
   /** Message count since last summary */
   messagesSinceLastSummary: number;
   /** Whether a summary exists */
@@ -227,8 +250,8 @@ export interface SummaryResult {
   summary?: ContextSummary;
   /** Error message */
   error?: string;
-  /** Fallback summary when primary summarization fails */
-  fallback?: ContextSummary;
+  /** Tokens used by the summarization model */
+  tokensUsed?: number;
 }
 
 /**
@@ -344,67 +367,27 @@ export interface SummarizerService {
 }
 
 /**
- * Repository interface
+ * Interface defining the contract for context storage and retrieval.
  */
 export interface Repository {
-  /**
-   * Save a summary
-   * @param summary Summary to save
-   */
+  initialize(): Promise<void>;
+  addMessage(contextId: string, message: Message): Promise<void>;
+  loadMessages(contextId: string): Promise<Message[]>;
+  loadContextData(contextId: string): Promise<ContextMetadata | undefined>;
+  saveContextData(contextId: string, metadata: ContextMetadata): Promise<void>;
+  loadContext(contextId: string): Promise<ContextData | undefined>;
+  deleteContext(contextId: string): Promise<boolean>;
   saveSummary(summary: ContextSummary): Promise<void>;
-  
-  /**
-   * Load a summary
-   * @param contextId Context identifier
-   * @returns Stored summary or undefined if it doesn't exist
-   */
   loadSummary(contextId: string): Promise<ContextSummary | undefined>;
-  
-  /**
-   * Save a hierarchical summary
-   * @param summary Hierarchical summary to save
-   */
-  saveHierarchicalSummary?(summary: HierarchicalSummary): Promise<void>;
-  
-  /**
-   * Load a hierarchical summary
-   * @param contextId Context identifier
-   * @returns Stored hierarchical summary or undefined
-   */
-  loadHierarchicalSummary?(contextId: string): Promise<HierarchicalSummary | undefined>;
-  
-  /**
-   * Save a meta-summary
-   * @param summary Meta-summary to save
-   */
-  saveMetaSummary?(summary: MetaSummary): Promise<void>;
-  
-  /**
-   * Load a meta-summary
-   * @param id Meta-summary identifier
-   * @returns Stored meta-summary or undefined
-   */
-  loadMetaSummary?(id: string): Promise<MetaSummary | undefined>;
-  
-  /**
-   * Get all related contexts
-   * @param contextId Context identifier
-   * @returns Array of related context IDs
-   */
-  getRelatedContexts?(contextId: string): Promise<string[]>;
-  
-  /**
-   * Commit Git changes
-   * @param message Commit message
-   */
-  commit(message: string): Promise<void>;
-  
-  /**
-   * Check if a path should be ignored
-   * @param filePath Path to check
-   * @returns Whether the file should be ignored
-   */
-  shouldIgnore(filePath: string): boolean;
+  deleteSummary(contextId: string): Promise<boolean>;
+  saveHierarchicalSummary(summary: HierarchicalSummary): Promise<void>;
+  loadHierarchicalSummary(contextId: string): Promise<HierarchicalSummary | undefined>;
+  saveMetaSummary(summary: MetaSummary): Promise<void>;
+  loadMetaSummary(id: string): Promise<MetaSummary | undefined>;
+  getRelatedContexts(contextId: string): Promise<string[]>;
+  getAllContextIds(): Promise<string[]>;
+  getAllHierarchicalContextIds(): Promise<string[]>;
+  getAllMetaSummaryIds(): Promise<string[]>;
 }
 
 /**
@@ -433,7 +416,6 @@ export const DEFAULT_CONFIG: MCPConfig = {
   messageLimitThreshold: 10,
   tokenLimitPercentage: 80,
   contextDir: '.prompt-context',
-  useGit: true,
   ignorePatterns: [],
   autoSummarize: true,
   hierarchicalContext: true,
@@ -494,4 +476,58 @@ export const DEFAULT_CONFIG: MCPConfig = {
 //     } catch (error) {
 //         console.error(`Error saving config to ${configPath}:`, error);
 //     }
-// } 
+// }
+
+import { z } from 'zod';
+// Import ContextMetadata from repository.ts
+import { ContextMetadata } from './repository';
+
+// Zod Schemas for MCP Tool Inputs
+
+export const pingSchema = z.object({}).describe("No arguments needed for ping.");
+
+export const addMessageSchema = z.object({
+  contextId: z.string().min(1).describe("Unique identifier for the context"),
+  message: z.string().min(1).describe("Message content to add"),
+  role: z.enum(["user", "assistant"]).describe("Role of the message sender"),
+  importance: z.nativeEnum(ContextImportance).optional().default(ContextImportance.MEDIUM).describe("Importance level (default: medium)"),
+  tags: z.array(z.string()).optional().default([]).describe("Tags associated with the message (optional)"),
+});
+
+export const retrieveContextSchema = z.object({
+  contextId: z.string().min(1).describe("Unique identifier for the context to retrieve"),
+});
+
+// Schema for finding similar contexts - maps to SimilarContext interface for output, but input needs query/limit
+export const similarContextSchema = z.object({
+  query: z.string().min(1).describe("Text to find similar contexts for"),
+  limit: z.number().int().min(1).optional().default(5).describe("Maximum number of contexts to return (default: 5)"),
+});
+
+export const addRelationshipSchema = z.object({
+  sourceContextId: z.string().min(1).describe("Source context ID"),
+  targetContextId: z.string().min(1).describe("Target context ID"),
+  relationshipType: z.nativeEnum(ContextRelationshipType).describe("Type of relationship (similar, continues, references, parent, child)"),
+  weight: z.number().min(0).max(1).optional().default(0.8).describe("Weight of the relationship (0.0 to 1.0, default: 0.8)"),
+});
+
+export const getRelatedContextsSchema = z.object({
+  contextId: z.string().min(1).describe("Context ID to find related contexts for"),
+  relationshipType: z.nativeEnum(ContextRelationshipType).optional().describe("Optional: filter by relationship type"),
+  direction: z.enum(["incoming", "outgoing", "both"]).optional().default("both").describe("Direction of relationships to get (default: both)"),
+});
+
+export const summarizeContextSchema = z.object({
+  contextId: z.string().min(1).describe("Context ID to generate summary for"),
+});
+
+// Define the MCPTools type based on the schemas
+export type MCPTools = {
+  ping: typeof pingSchema;
+  add_message: typeof addMessageSchema;
+  retrieve_context: typeof retrieveContextSchema;
+  get_similar_contexts: typeof similarContextSchema;
+  add_relationship: typeof addRelationshipSchema;
+  get_related_contexts: typeof getRelatedContextsSchema;
+  summarize_context: typeof summarizeContextSchema;
+}; 
