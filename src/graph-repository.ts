@@ -1,7 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { ContextSummary, ContextRelationshipType } from './types';
-import { ApiAnalytics, ApiCallType, apiAnalytics } from './analytics';
+import { ContextRelationshipType } from './types';
+import { ApiCallType, apiAnalytics } from './analytics';
 
 /**
  * Represents an edge in the context graph
@@ -132,7 +132,7 @@ export class GraphRepository implements GraphRepositoryInterface {
   /**
    * Ensure the repository is initialized before use
    */
-  private async ensureInitialized(): Promise<void> {
+  public async ensureInitialized(): Promise<void> {
     if (this.initPromise) {
       await this.initPromise;
     }

@@ -1,44 +1,28 @@
 #!/usr/bin/env node
 
-// Correct SDK imports based on documentation
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z, ZodError, ZodIssue } from 'zod'; // Ensure z is imported
+import { z, ZodError, ZodIssue } from 'zod';
 import {
     MCPConfig,
-    // Import Enums used in schemas
     ContextImportance,
     ContextRelationshipType,
-    // Schemas (assuming they are correctly exported now)
-    pingSchema,
-    addMessageSchema,
-    retrieveContextSchema,
-    similarContextSchema,
-    addRelationshipSchema,
-    getRelatedContextsSchema,
-    summarizeContextSchema,
-    // Import Message type
-    Message,
-    // MCPTools type might not be needed if using McpServer directly
     SummaryResult
 } from './types';
 import dotenv from 'dotenv';
 import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
-import { ApiAnalytics, apiAnalytics } from './analytics';
-import { FileSystemRepository, initializeRepositories, Repositories } from './repository';
-import { Summarizer, SimpleTextSummarizer } from './summarizer';
+import { ApiAnalytics } from './analytics';
+import { FileSystemRepository } from './repository';
+import { Summarizer } from './summarizer';
 import { VectorRepository } from './vector-repository';
 import { GraphRepository } from './graph-repository';
-import { BaseSummarizer } from './summarizer';
-import { ContextMetadata } from './repository';
 import { ContextService } from './services/context.service';
 
-// Read package version dynamically
 let packageVersion = 'unknown';
 try {
-  const packageJsonPath = path.join(__dirname, '..', 'package.json'); // Adjust path relative to compiled output (dist)
+  const packageJsonPath = path.join(__dirname, '..', 'package.json');
   const packageJsonContent = fs.readJsonSync(packageJsonPath);
   packageVersion = packageJsonContent.version || 'unknown';
 } catch (error) {
@@ -154,64 +138,76 @@ try {
 }
 console.error('[MCP Server] Final configuration loaded:', JSON.stringify(config, null, 2));
 console.error('[MCP Server] Initializing components...');
-let analytics: ApiAnalytics | null = null;
-if (config.trackApiCalls) {
-  try {
-    analytics = new ApiAnalytics();
-    console.error('[MCP Server] Analytics initialized.');
-  } catch (error) {
-    console.error('[MCP Server] Error initializing Analytics (continuing without it):', error);
+
+async function initializeComponents() {
+  let analytics: ApiAnalytics | null = null;
+  if (config.trackApiCalls) {
+    try {
+      analytics = new ApiAnalytics();
+      console.error('[MCP Server] Analytics initialized.');
+    } catch (error) {
+      console.error('[MCP Server] Error initializing Analytics (continuing without it):', error);
+    }
+  } else {
+      console.error('[MCP Server] API call tracking disabled.');
   }
-} else {
-    console.error('[MCP Server] API call tracking disabled.');
-}
-let repository: FileSystemRepository;
-let vectorRepository: VectorRepository | null = null;
-let graphRepository: GraphRepository | null = null;
-let summarizer: Summarizer | undefined;
-let contextService: ContextService;
-try {
+
   console.error(`[MCP Server] Initializing FileSystemRepository with contextDir: ${config.contextDir}`);
-  repository = new FileSystemRepository(config);
+  const repository = new FileSystemRepository(config);
   console.error('[MCP Server] FileSystemRepository initialized.');
+
+  let vectorRepository: VectorRepository | null = null;
+  let graphRepository: GraphRepository | null = null;
+
   if (config.useVectorDb) {
     console.error('[MCP Server] Initializing VectorRepository...');
     vectorRepository = new VectorRepository(config.contextDir);
-    console.error('[MCP Server] VectorRepository initialized.');
+    try {
+      await vectorRepository.ensureInitialized();
+      console.error('[MCP Server] VectorRepository successfully initialized.');
+    } catch (err) {
+      console.error('[MCP Server] Warning: VectorRepository initialization error:', err);
+    }
   } else {
     console.error('[MCP Server] Vector DB usage disabled.');
   }
+
   if (config.useGraphDb) {
     console.error('[MCP Server] Initializing GraphRepository...');
     graphRepository = new GraphRepository(config.contextDir);
-    console.error('[MCP Server] GraphRepository initialized.');
+    try {
+      await graphRepository.ensureInitialized();
+      console.error('[MCP Server] GraphRepository successfully initialized.');
+    } catch (err) {
+      console.error('[MCP Server] Warning: GraphRepository initialization error:', err);
+    }
   } else {
     console.error('[MCP Server] Graph DB usage disabled.');
   }
+
+  console.error("[MCP Server] All required repositories initialized successfully.");
+
   console.error('[MCP Server] Initializing Summarizer...');
-  summarizer = config.autoSummarize || config.useVectorDb ? new Summarizer(config.tokenLimitPercentage, analytics, vectorRepository, graphRepository) : undefined;
+  const summarizer = config.autoSummarize || config.useVectorDb ? new Summarizer(config.tokenLimitPercentage, analytics, vectorRepository, graphRepository) : undefined;
   console.error('[MCP Server] Summarizer initialized.');
 
   console.error('[MCP Server] Initializing ContextService...');
-  contextService = new ContextService(
+  const contextService = new ContextService(
     { fs: repository, vector: vectorRepository, graph: graphRepository },
     summarizer,
     config,
     analytics
   );
   console.error('[MCP Server] ContextService initialized.');
-} catch (error) {
-  console.error('[MCP Server] CRITICAL ERROR initializing components or service:', error);
-  process.exit(1);
-}
-console.error('[MCP Server] All components initialized successfully.');
 
-// Wrap the MCP server logic in an async function to use await
-async function startMcpServer() {
-    // --- Setup MCP Server using McpServer --- 
+  return { contextService, analytics };
+}
+
+// MCP 서버 시작 함수
+async function startMcpServer(contextService: ContextService, analytics: ApiAnalytics | null) {
     const server = new McpServer({
-        name: "prompt-context", // Use the package name
-        version: packageVersion // Use dynamically read version
+        name: "prompt-context",
+        version: packageVersion
     });
     console.error('[MCP Server] McpServer instance created.');
 
@@ -225,19 +221,17 @@ async function startMcpServer() {
         return `Invalid arguments: ${issues}`;
     }
 
-    // Register tools using server.tool(name, schemaDefinition, handler)
-    // Note: Second argument is the ZodRawShape (plain object), not z.object()
-    // Note: Handler signature is (args, extra)
+    // ping 도구 등록
     server.tool('ping',
-        {}, // Correct: Empty plain object for ZodRawShape
-        async (args, extra) => { // Correct: Use args and extra parameters
+        {},
+        async (args, extra) => {
             console.error('[MCP Server] Received ping request.');
-            // Return structure: { content: [...] }
             return { content: [{ type: "text" as const, text: "pong" }] };
         }
     );
     console.error('[MCP Server] Registered tool: ping');
 
+    // add_message 도구 등록
     server.tool('add_message',
         {
             contextId: z.string().min(1),
@@ -250,7 +244,7 @@ async function startMcpServer() {
             const { contextId, message, role, importance, tags } = args;
             console.error(`[MCP Server] Received add_message for context: ${contextId} via MCP.`);
             try {
-                // Convert string importance to enum value
+                // 문자열 중요도를 열거형 값으로 변환
                 let importanceValue: ContextImportance = ContextImportance.MEDIUM;
                 switch(importance.toUpperCase()) {
                     case "LOW": importanceValue = ContextImportance.LOW; break;
@@ -258,13 +252,11 @@ async function startMcpServer() {
                     case "CRITICAL": importanceValue = ContextImportance.CRITICAL; break;
                 }
 
-                // Call the ContextService to handle the logic
                 await contextService.addMessage(contextId, {
                     role,
                     content: message,
                     importance: importanceValue,
                     tags
-                    // timestamp is added by the service/repository
                 });
 
                 return { content: [{ type: "text" as const, text: `Message added to context: ${contextId}` }] };
@@ -277,19 +269,17 @@ async function startMcpServer() {
     );
     console.error('[MCP Server] Registered tool: add_message');
 
+    // retrieve_context 도구 등록
     server.tool('retrieve_context',
         { contextId: z.string().min(1) },
         async (args, extra) => {
             const { contextId } = args;
             console.error(`[MCP Server] Received retrieve_context for context: ${contextId} via MCP.`);
             try {
-                // Call ContextService
                 const context = await contextService.getContext(contextId);
                 if (!context) {
-                    // Service returns null if not found
                     return { content: [], error: { message: `Context not found: ${contextId}` } }; 
                 }
-                // Stringify the whole ContextData object returned by the service
                 return { content: [{ type: "text" as const, text: JSON.stringify(context) }] };
             } catch (error: unknown) { 
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -300,6 +290,7 @@ async function startMcpServer() {
     );
     console.error('[MCP Server] Registered tool: retrieve_context');
 
+    // get_similar_contexts 도구 등록
     server.tool('get_similar_contexts',
         { 
             query: z.string().min(1),
@@ -308,40 +299,36 @@ async function startMcpServer() {
         async (args, extra) => { 
             const { query, limit } = args;
             console.error(`[MCP Server] Received get_similar_contexts with query: "${query?.substring(0, 50)}..." via MCP.`);
-            if (!config.useVectorDb) { // Check config directly here for early exit
+            if (!config.useVectorDb) {
                  return { content: [], error: { message: 'Vector database is not enabled in configuration.' } };
              }
             try {
-                 // Call ContextService
                  const results = await contextService.findSimilarContexts(query, limit);
                  return { content: [{ type: "text" as const, text: JSON.stringify(results) }] };
             } catch (error: any) { 
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error(`[MCP Server] Error in get_similar_contexts handler:`, errorMessage);
-                // Check if fallback should be attempted based on error?
-                // if (config.fallbackToKeywordMatch) { ... fallback logic ... } 
                 return { content: [], error: { message: `Failed to find similar contexts: ${errorMessage}` } };
             }
         }
     );
     console.error('[MCP Server] Registered tool: get_similar_contexts');
 
+    // add_relationship 도구 등록
     server.tool('add_relationship',
         { 
             sourceContextId: z.string().min(1),
             targetContextId: z.string().min(1),
-            // Use z.nativeEnum for direct enum usage with Zod
             relationshipType: z.nativeEnum(ContextRelationshipType),
             weight: z.number().min(0).max(1).optional().default(0.8),
         },
         async (args, extra) => { 
             const { sourceContextId, targetContextId, relationshipType, weight } = args;
             console.error(`[MCP Server] Received add_relationship: ${sourceContextId} -> ${targetContextId} (${relationshipType}) via MCP.`);
-             if (!config.useGraphDb) { // Check config directly here for early exit
+             if (!config.useGraphDb) {
                  return { content: [], error: { message: 'Graph database is not enabled in configuration.' } };
              }
             try {
-                 // Call ContextService
                  await contextService.addRelationship(sourceContextId, targetContextId, relationshipType, weight);
                  return { content: [{ type: "text" as const, text: `Relationship added: ${sourceContextId} -> ${targetContextId} (${relationshipType})` }] };
             } catch (error: any) { 
@@ -353,6 +340,7 @@ async function startMcpServer() {
     );
     console.error('[MCP Server] Registered tool: add_relationship');
 
+    // get_related_contexts 도구 등록
     server.tool('get_related_contexts',
         { 
             contextId: z.string().min(1),
@@ -362,11 +350,10 @@ async function startMcpServer() {
         async (args, extra) => { 
             const { contextId, relationshipType, direction } = args;
             console.error(`[MCP Server] Received get_related_contexts for context: ${contextId} via MCP.`);
-            if (!config.useGraphDb) { // Check config directly here for early exit
+            if (!config.useGraphDb) {
                  return { content: [], error: { message: 'Graph database is not enabled in configuration.' } };
              }
             try {
-                 // Call ContextService
                  const relatedContextIds = await contextService.getRelatedContexts(contextId, relationshipType, direction);
                  return { content: [{ type: "text" as const, text: JSON.stringify(relatedContextIds) }] };
             } catch (error: any) { 
@@ -378,35 +365,31 @@ async function startMcpServer() {
     );
     console.error('[MCP Server] Registered tool: get_related_contexts');
 
+    // summarize_context 도구 등록
     server.tool('summarize_context',
         { contextId: z.string().min(1) },
         async (args, extra) => {
             const { contextId } = args;
             console.error(`[MCP Server] Received summarize_context for context: ${contextId} via MCP.`);
             try {
-                // Call ContextService
                 const result: SummaryResult = await contextService.triggerManualSummarization(contextId);
 
                 if (result.success && result.summary) {
-                    // Success: Return the summary TEXT
                     return { 
                         content: [{ 
                             type: "text" as const, 
-                            // Ensure we return the summary string, not the object
                             text: result.summary.summary 
                         }] 
                     };
                 } else {
-                    // Summarization failed or no summary generated
-                    return { 
+                    return {
                         content: [], 
-                        error: { 
+                        error: {
                             message: `Failed to summarize context: ${result.error || 'Unknown summarization error'}` 
                         } 
                     };
                 }
             } catch (error: unknown) { 
-                // Catch errors from the service call itself (e.g., repository errors)
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error(`[MCP Server] Error in summarize_context handler for ${contextId}:`, errorMessage);
                 return { 
@@ -422,7 +405,7 @@ async function startMcpServer() {
 
     console.error('[MCP Server] All tools registered.');
 
-    // --- Start Listening using StdioServerTransport ---
+    // StdioServerTransport를 사용하여 리스닝 시작
     try {
         console.error('[MCP Server] Starting MCP listener with stdio transport...');
         const transport = new StdioServerTransport();
@@ -434,12 +417,22 @@ async function startMcpServer() {
     }
 }
 
-// Call the async function to start the server
-startMcpServer().catch(error => {
-    console.error('[MCP Server] Unhandled error during server startup:', error);
+// 메인 실행 로직
+async function main() {
+  try {
+    console.error("[MCP Server] Starting component initialization...");
+    const { contextService, analytics } = await initializeComponents();
+    console.error("[MCP Server] Component initialization complete. Starting MCP server...");
+    await startMcpServer(contextService, analytics);
+  } catch (error) {
+    console.error("[MCP Server] CRITICAL ERROR during startup:", error);
     process.exit(1);
-});
+  }
+}
 
+main();
+
+// 프로세스 종료 처리
 process.on('SIGINT', async () => {
   console.error('[MCP Server] Received SIGINT. Shutting down...');
   console.error('[MCP Server] Shutdown complete (save operations skipped).');
@@ -459,4 +452,9 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
   console.error('[MCP Server] Uncaught Exception:', error);
   process.exit(1);
-}); 
+});
+
+if (require.main === module) {
+  // 스크립트가 직접 실행되었을 때 로깅만 추가
+  console.error('[MCP Server] Script executed directly');
+} 

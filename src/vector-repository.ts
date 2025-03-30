@@ -238,9 +238,10 @@ export class VectorRepository implements VectorRepositoryInterface {
   }
   
   /**
-   * Ensure the repository is initialized before use
+   * 벡터 리포지토리가 초기화되었는지 확인하고,
+   * 초기화되지 않았으면 초기화를 시도합니다.
    */
-  private async ensureInitialized(): Promise<void> {
+  public async ensureInitialized(): Promise<void> {
     // 이미 초기화가 진행 중이면 완료될 때까지 대기
     if (this.initPromise) {
       try {
