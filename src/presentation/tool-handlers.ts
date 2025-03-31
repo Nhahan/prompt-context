@@ -2,13 +2,14 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ContextServiceInterface } from '../services/context.interface';
 import {
-  pingSchema,
   addMessageSchema,
   retrieveContextSchema,
   similarContextSchema,
   addRelationshipSchema,
   getRelatedContextsSchema,
   summarizeContextSchema,
+  visualizeContextSchema,
+  getContextMetricsSchema,
   toolSchemas,
 } from './tools-schema';
 import { ContextImportance } from '../domain/types';
@@ -35,18 +36,14 @@ function parseImportance(importance: string): ContextImportance | undefined {
 
 /**
  * Tool handler for the ping tool
- * @param args Tool arguments
- * @returns Response for the MCP client
+ * Simple ping tool to test connectivity
  */
-export async function handlePing(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  args: z.infer<typeof pingSchema>
-) {
+export function handlePing() {
   return {
     content: [
       {
         type: 'text',
-        text: JSON.stringify({ pong: true, timestamp: Date.now() }),
+        text: 'pong',
       },
     ],
   };
@@ -237,11 +234,7 @@ export async function handleSummarizeContext(
         content: [
           {
             type: 'text',
-            text: JSON.stringify({
-              success: true,
-              contextId: args.contextId,
-              summary: result.summary,
-            }),
+            text: JSON.stringify(result.summary),
           },
         ],
       };
@@ -275,6 +268,128 @@ export async function handleSummarizeContext(
 }
 
 /**
+ * Tool handler for the visualize_context tool
+ * @param args Tool arguments
+ * @param contextService Context service
+ */
+export async function handleVisualizeContext(
+  args: z.infer<typeof visualizeContextSchema>,
+  contextService: ContextServiceInterface
+) {
+  try {
+    // 컨텍스트 ID가 제공되지 않은 경우 빈 세션 목록 반환
+    if (!args.contextId) {
+      // 참고: ContextServiceInterface에 listSessions 메서드가 없으므로 빈 배열 반환
+      return {
+        success: true,
+        sessions: [],
+        format: args.format,
+      };
+    }
+
+    // 특정 컨텍스트 시각화
+    const context = await contextService.getContext(args.contextId);
+    if (!context) {
+      return {
+        success: false,
+        error: `Context not found: ${args.contextId}`,
+      };
+    }
+
+    // 관련 컨텍스트 가져오기
+    let relatedContexts: Array<{ contextId: string }> = [];
+    if (args.includeRelated) {
+      const relatedIds = await contextService.getRelatedContexts(args.contextId);
+      relatedContexts = relatedIds.map((id) => ({ contextId: id }));
+    }
+
+    if (args.format === 'text') {
+      // 텍스트 형식 시각화
+      const lines: string[] = [];
+      lines.push(`Context ID: ${args.contextId}`);
+      lines.push(`Messages: ${context.messages.length}`);
+      lines.push(`Has Summary: ${!!context.summary}`);
+
+      if (context.summary) {
+        lines.push(`Summary: ${context.summary.messageCount || 0} messages summarized`);
+        if (context.summary.keyInsights && context.summary.keyInsights.length > 0) {
+          lines.push(`Key Insights: ${context.summary.keyInsights.join(', ')}`);
+        }
+      }
+
+      if (relatedContexts.length > 0) {
+        lines.push(`Related Contexts: ${relatedContexts.map((r) => r.contextId).join(', ')}`);
+      }
+
+      return {
+        success: true,
+        contextId: args.contextId,
+        format: 'text',
+        text: lines.join('\n'),
+      };
+    } else {
+      // 기본 JSON 형식
+      return {
+        success: true,
+        contextId: args.contextId,
+        messageCount: context.messages.length,
+        hasSummary: !!context.summary,
+        summary: context.summary
+          ? {
+              keyInsights: context.summary.keyInsights || [],
+              messageCount: context.summary.messageCount || 0,
+              codeBlocks: (context.summary.codeBlocks || []).map((block) => ({
+                language: block.language,
+                importance: block.importance,
+              })),
+            }
+          : null,
+        relatedContexts,
+      };
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      error: `Failed to visualize context: ${errorMessage}`,
+    };
+  }
+}
+
+/**
+ * Tool handler for the get_context_metrics tool
+ * @param args Tool arguments
+ * @param contextService Context service
+ */
+export async function handleGetContextMetrics(
+  args: z.infer<typeof getContextMetricsSchema>,
+  contextService: ContextServiceInterface
+) {
+  try {
+    // 기본 메트릭 반환 (analytics 서비스 없이도 작동하도록)
+    const allContexts = await contextService.getContext(args.period || 'all');
+    const contextCount = allContexts ? 1 : 0;
+
+    return {
+      success: true,
+      metrics: {
+        averageScore: 0,
+        totalCalls: contextCount,
+        byType: { context: contextCount },
+        historyTrend: [],
+      },
+      period: args.period,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      error: `Failed to get context metrics: ${errorMessage}`,
+    };
+  }
+}
+
+/**
  * Map of tool names to their handler functions
  */
 export const toolHandlers = {
@@ -285,6 +400,8 @@ export const toolHandlers = {
   add_relationship: handleAddRelationship,
   get_related_contexts: get_related_contexts,
   summarize_context: handleSummarizeContext,
+  visualize_context: handleVisualizeContext,
+  get_context_metrics: handleGetContextMetrics,
 };
 
 /**
@@ -316,6 +433,10 @@ function getToolDescription(toolName: string): string {
       return 'Get contexts related to a specific context';
     case 'summarize_context':
       return 'Trigger manual summarization for a context';
+    case 'visualize_context':
+      return 'Visualize a conversation context';
+    case 'get_context_metrics':
+      return 'Get context metrics';
     default:
       return 'Tool description not available';
   }
