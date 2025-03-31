@@ -158,7 +158,7 @@ export class ContextService implements ContextServiceInterface {
       });
     }
 
-    console.log(`[ContextService] Manually triggering summarization for ${contextId}`);
+    console.error(`[ContextService] Manually triggering summarization for ${contextId}`);
 
     if (!this.summarizer) {
       console.error('[ContextService] Summarizer is not configured.');
@@ -169,7 +169,7 @@ export class ContextService implements ContextServiceInterface {
     try {
       const messages = await this.repositories.fs.loadMessages(contextId);
       if (!messages || messages.length === 0) {
-        console.warn(
+        console.error(
           `[ContextService] No messages found for ${contextId}, skipping summarization.`
         );
         // Return success:false but not an error, as it's a valid state
@@ -177,19 +177,19 @@ export class ContextService implements ContextServiceInterface {
       }
 
       result = await this.summarizer.summarize(messages, contextId);
-      console.log(
+      console.error(
         `[ContextService] Manual Summarization: Summarizer returned ${
           result.success ? 'success' : 'failure'
         }`
       );
 
       if (result.success && result.summary) {
-        console.log(`[ContextService] Manual Summarization: Saving summary for ${contextId}`);
+        console.error(`[ContextService] Manual Summarization: Saving summary for ${contextId}`);
         await this.repositories.fs.saveSummary(result.summary);
 
         // Add summary to vector DB if configured
         if (this.repositories.vector) {
-          console.log(
+          console.error(
             `[ContextService] Manual Summarization: Adding summary to vector DB for ${contextId}`
           );
           try {
@@ -353,11 +353,11 @@ export class ContextService implements ContextServiceInterface {
       return;
     }
 
-    console.log(`[ContextService] Background summarization for ${contextId} started.`);
+    console.error(`[ContextService] Background summarization for ${contextId} started.`);
 
     try {
       const result = await this.triggerManualSummarization(contextId);
-      console.log(
+      console.error(
         `[ContextService] Background summarization for ${contextId} completed. Success: ${result.success}`
       );
     } catch (error: unknown) {
