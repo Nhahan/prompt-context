@@ -1,6 +1,6 @@
 {
   "name": "prompt-context",
-  "version": "0.1.1-beta.22",
+  "version": "0.2.0-beta.0",
   "description": "An MCP protocol that helps AI agents efficiently remember and utilize previous conversation context.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
