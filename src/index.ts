@@ -1,27 +1,31 @@
 // Export core classes and types for external use
 
-// Removed export { MemoryContextProtocol } from './mcp';
+// Repositories
+export { FileSystemRepository } from './repositories/file-system.repository';
+export { VectorRepository } from './repositories/vector.repository';
+export { GraphRepository } from './repositories/graph.repository';
 
-export { FileSystemRepository } from './repository';
+// Services
 export {
   BaseSummarizer,
-  SimpleTextSummarizer,
-  AIModelSummarizer,
-  CustomAISummarizer,
   Summarizer,
-} from './summarizer';
-export { VectorRepository } from './vector-repository';
-export { GraphRepository } from './graph-repository';
-export { ApiAnalytics } from './analytics';
-export { ContextService } from './services/context.service';
-export * from './types'; // Export all types
+} from './services/summarizer.service';
 
-// Removed import { MemoryContextProtocol } from './mcp';
-// Removed export { MemoryContextProtocol };
+// Utils
+export { ApiAnalytics } from './utils/analytics';
+
+// Services
+export { ContextService } from './services/context.service';
+
+// Types
+export * from './domain/types';
 
 // Create convenient access to enums and specific types
-import { ContextImportance } from './types';
+import { ContextImportance } from './domain/types';
 export const Importance = ContextImportance;
+
+// Removed export { MemoryContextProtocol } from './mcp';
+// Removed export { MemoryContextProtocol };
 
 // Remove default export related to MemoryContextProtocol
 // If a default export is needed, it should be something else

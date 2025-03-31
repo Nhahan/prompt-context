@@ -1,39 +1,52 @@
-import { FileSystemRepository, ContextMetadata } from '../repository';
-import { VectorRepository } from '../vector-repository';
-import { GraphRepository } from '../graph-repository';
-import { Summarizer } from '../summarizer';
 import {
   Message,
   ContextData,
   SimilarContext,
   ContextRelationshipType,
-  MCPConfig,
   SummaryResult,
+  ContextMetadata,
   ApiCallType,
-} from '../types';
-import { ApiAnalytics } from '../analytics'; // Optional analytics tracking
+} from '../domain/types';
+import { ContextServiceInterface } from './context.interface';
+import {
+  Repository,
+  VectorRepositoryInterface,
+  GraphRepositoryInterface,
+} from '../repositories/repository.interface';
+import { SummarizerService } from './summarizer.interface';
+import { MCPConfig } from '../config/config';
+import { ApiAnalytics } from '../utils/analytics';
 
-// Define Repositories interface locally or import from repository.ts if exported
+/**
+ * Repository dependencies for the Context Service
+ */
 interface Repositories {
-  fs: FileSystemRepository;
-  vector?: VectorRepository | null;
-  graph?: GraphRepository | null;
+  fs: Repository;
+  vector?: VectorRepositoryInterface | null;
+  graph?: GraphRepositoryInterface | null;
 }
 
 /**
- * Service layer for handling core context management logic.
+ * Service layer for handling core context management logic
  */
-export class ContextService {
+export class ContextService implements ContextServiceInterface {
   private repositories: Repositories;
-  private summarizer?: Summarizer;
+  private summarizer?: SummarizerService;
   private config: Omit<MCPConfig, 'ignorePatterns'>;
-  private analytics?: ApiAnalytics | null;
+  private analytics: ApiAnalytics | null;
 
+  /**
+   * Create a new ContextService
+   * @param repositories Repository dependencies
+   * @param summarizer Optional summarizer service
+   * @param config MCP configuration
+   * @param analytics Optional analytics service
+   */
   constructor(
     repositories: Repositories,
-    summarizer: Summarizer | undefined,
+    summarizer: SummarizerService | undefined,
     config: Omit<MCPConfig, 'ignorePatterns'>,
-    analytics?: ApiAnalytics | null
+    analytics: ApiAnalytics | null = null
   ) {
     this.repositories = repositories;
     this.summarizer = summarizer;
@@ -43,8 +56,10 @@ export class ContextService {
   }
 
   /**
-   * Adds a message to the specified context and handles metadata updates
+   * Add a message to the specified context and handle metadata updates
    * and potential background summarization trigger.
+   * @param contextId Context ID
+   * @param messageData Message data without timestamp
    */
   async addMessage(contextId: string, messageData: Omit<Message, 'timestamp'>): Promise<void> {
     console.error(`[ContextService] Adding message to ${contextId}`);
@@ -99,14 +114,15 @@ export class ContextService {
       throw new Error(`Failed to add message to ${contextId}: ${errorMessage}`);
     }
 
-    // ApiAnalytics 사용 부분 수정
+    // Track API call if analytics is enabled
     if (this.analytics) {
       this.analytics.trackCall(ApiCallType.VECTOR_DB_ADD, { contextId });
     }
   }
 
   /**
-   * Retrieves the full context data (metadata, messages, summary).
+   * Retrieve the full context data (metadata, messages, summary)
+   * @param contextId Context ID
    */
   async getContext(contextId: string): Promise<ContextData | null> {
     console.error(`[ContextService] Getting context for ${contextId}`);
@@ -131,18 +147,21 @@ export class ContextService {
   }
 
   /**
-   * Manually triggers summarization for a specific context.
+   * Manually trigger summarization for a specific context
+   * @param contextId Context ID
    */
   async triggerManualSummarization(contextId: string): Promise<SummaryResult> {
-    const stopTracking = this.analytics?.trackCall(ApiCallType.LLM_SUMMARIZE, {
-      contextId,
-      manualTrigger: true,
-    });
+    if (this.analytics) {
+      this.analytics.trackCall(ApiCallType.LLM_SUMMARIZE, {
+        contextId,
+        manualTrigger: true,
+      });
+    }
+
     console.log(`[ContextService] Manually triggering summarization for ${contextId}`);
 
     if (!this.summarizer) {
       console.error('[ContextService] Summarizer is not configured.');
-      if (stopTracking) stopTracking();
       return { success: false, error: 'Summarizer is not configured.' };
     }
 
@@ -159,7 +178,9 @@ export class ContextService {
 
       result = await this.summarizer.summarize(messages, contextId);
       console.log(
-        `[ContextService] Manual Summarization: Summarizer returned ${result.success ? 'success' : 'failure'}`
+        `[ContextService] Manual Summarization: Summarizer returned ${
+          result.success ? 'success' : 'failure'
+        }`
       );
 
       if (result.success && result.summary) {
@@ -172,15 +193,7 @@ export class ContextService {
             `[ContextService] Manual Summarization: Adding summary to vector DB for ${contextId}`
           );
           try {
-            // Pass only the summary TEXT to addSummary for embedding
-            await this.repositories.vector.addSummary({
-              ...result.summary, // Keep other summary properties
-              // Ensure the text to be embedded is passed correctly (assuming addSummary handles this)
-              // If addSummary expects only text, pass result.summary.summary
-              // If addSummary expects the object and extracts text, this is okay.
-              // Based on error, seems it expects text for embedding. Revisit addSummary if needed.
-              // Let's assume addSummary can handle the object for now, but pass the text explicitly if that fails.
-            });
+            await this.repositories.vector.addSummary(result.summary);
           } catch (vectorError) {
             console.error(
               `[ContextService] Error adding summary to vector DB for ${contextId}:`,
@@ -193,73 +206,67 @@ export class ContextService {
         // Update metadata safely
         const existingMetadata = await this.repositories.fs.loadContextData(contextId);
         if (!existingMetadata) {
-          // Should not happen if messages were loaded, but handle defensively
           console.error(
             `[ContextService] Metadata not found for ${contextId} after loading messages. Cannot update.`
           );
-          // Consider if this should alter the success status of the summarization
         } else {
           const updatedMetadata: ContextMetadata = {
-            ...existingMetadata, // Spread existing data
-            contextId: contextId, // Ensure contextId is explicitly set (it's required)
-            messagesSinceLastSummary: 0,
+            ...existingMetadata,
+            messagesSinceLastSummary: 0, // Reset counter
             hasSummary: true,
             lastSummarizedAt: Date.now(),
-            importanceScore: result.summary.importanceScore, // Update importance if available
           };
           await this.repositories.fs.saveContextData(contextId, updatedMetadata);
-          console.log(`[ContextService] Metadata updated after summarization for ${contextId}`);
         }
-        console.log(`[ContextService] Manual summarization successful for ${contextId}`);
-      } else {
-        console.error(
-          `[ContextService] Manual summarization failed for ${contextId}: ${result.error}`
-        );
       }
-      return result;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(
-        `[ContextService] Error during manual summarization for ${contextId}:`,
-        errorMsg
+        `[ContextService] Error during summarization for ${contextId}: ${errorMessage}`
       );
-      result = { success: false, error: errorMsg };
-      return result;
-    } finally {
-      if (stopTracking) stopTracking();
+      result = { success: false, error: errorMessage };
     }
+
+    return result;
   }
 
+  /**
+   * Find contexts similar to a query text
+   * @param query Search query
+   * @param limit Maximum number of results
+   */
   async findSimilarContexts(query: string, limit: number): Promise<SimilarContext[]> {
-    console.error(`[ContextService] Finding similar contexts for query: ${query}`);
-
-    if (!this.repositories.vector) {
-      throw new Error('Vector repository is not available.');
-    }
-
     if (this.analytics) {
       this.analytics.trackCall(ApiCallType.VECTOR_DB_SEARCH, { query, limit });
     }
 
-    // 1. Call vector repository
-    // 2. Handle fallback (optional)
-    const results = await this.repositories.vector.findSimilarContexts(query, limit);
-    console.log(`[ContextService] Found ${results.length} similar contexts.`);
-    return results;
+    if (!this.repositories.vector) {
+      console.error('[ContextService] Vector repository not configured for similarity search.');
+      return [];
+    }
+
+    try {
+      return await this.repositories.vector.findSimilarContexts(query, limit);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[ContextService] Error finding similar contexts: ${errorMessage}`);
+      return [];
+    }
   }
 
+  /**
+   * Add a relationship between contexts
+   * @param sourceContextId Source context ID
+   * @param targetContextId Target context ID
+   * @param relationshipType Relationship type
+   * @param weight Relationship strength
+   */
   async addRelationship(
     sourceContextId: string,
     targetContextId: string,
     relationshipType: ContextRelationshipType,
     weight: number
   ): Promise<void> {
-    console.error(`[ContextService] Adding relationship ${sourceContextId} -> ${targetContextId}`);
-
-    if (!this.repositories.graph) {
-      throw new Error('Graph repository is not available.');
-    }
-
     if (this.analytics) {
       this.analytics.trackCall(ApiCallType.GRAPH_DB_ADD, {
         sourceContextId,
@@ -268,101 +275,94 @@ export class ContextService {
       });
     }
 
-    // 1. Call graph repository
-    await this.repositories.graph.addRelationship(
-      sourceContextId,
-      targetContextId,
-      relationshipType,
-      weight
-    );
+    if (!this.repositories.graph) {
+      console.error('[ContextService] Graph repository not configured for relationship tracking.');
+      throw new Error('Graph repository not configured.');
+    }
+
+    // Validate that both contexts exist
+    const sourceExists =
+      (await this.repositories.fs.loadContextData(sourceContextId)) !== undefined;
+    const targetExists =
+      (await this.repositories.fs.loadContextData(targetContextId)) !== undefined;
+
+    if (!sourceExists || !targetExists) {
+      throw new Error(
+        `Cannot create relationship: ${!sourceExists ? 'Source' : 'Target'} context does not exist.`
+      );
+    }
+
+    try {
+      await this.repositories.graph.addRelationship(
+        sourceContextId,
+        targetContextId,
+        relationshipType,
+        weight
+      );
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[ContextService] Error adding relationship: ${errorMessage}`);
+      throw new Error(`Failed to add relationship: ${errorMessage}`);
+    }
   }
 
+  /**
+   * Get related contexts
+   * @param contextId Context ID
+   * @param relationshipType Optional relationship type filter
+   * @param direction Relationship direction
+   */
   async getRelatedContexts(
     contextId: string,
     relationshipType?: ContextRelationshipType,
     direction: 'incoming' | 'outgoing' | 'both' = 'both'
   ): Promise<string[]> {
-    console.error(`[ContextService] Getting related contexts for ${contextId}`);
-
     if (this.analytics) {
-      this.analytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, { contextId });
+      this.analytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, {
+        contextId,
+        relationshipType,
+        direction,
+      });
     }
 
     if (!this.repositories.graph) {
-      throw new Error('Graph repository is not available.');
+      console.error('[ContextService] Graph repository not configured for relationship queries.');
+      return [];
     }
-    // 1. Call graph repository
-    const results = await this.repositories.graph.getRelatedContexts(
-      contextId,
-      relationshipType,
-      direction
-    );
-    console.log(`[ContextService] Found ${results.length} related contexts.`);
-    return results;
+
+    try {
+      return await this.repositories.graph.getRelatedContexts(
+        contextId,
+        relationshipType,
+        direction
+      );
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[ContextService] Error getting related contexts: ${errorMessage}`);
+      return [];
+    }
   }
 
-  // --- Background Summarization (Internal Helper) ---
+  /**
+   * Trigger background summarization process
+   * @param contextId Context ID to summarize
+   */
   private async triggerBackgroundSummarization(contextId: string): Promise<void> {
-    const stopTracking = this.analytics?.trackCall(ApiCallType.LLM_SUMMARIZE, {
-      contextId,
-      manualTrigger: false,
-    });
-    console.log(`[ContextService] Checking background summarization conditions for ${contextId}`);
     if (!this.summarizer) {
-      console.error('[ContextService] Background Summarization: Summarizer not available.');
+      console.error('[ContextService] Summarizer not configured for background summarization.');
       return;
     }
 
-    let shouldSummarize = false;
-    let metadata: ContextMetadata | undefined;
+    console.log(`[ContextService] Background summarization for ${contextId} started.`);
+
     try {
-      metadata = await this.repositories.fs.loadContextData(contextId);
-      if (!metadata) {
-        console.error(
-          `[ContextService] Metadata not found for ${contextId} after loading messages. Cannot update.`
-        );
-        return;
-      }
-
-      const messageCount = metadata?.messagesSinceLastSummary || 0;
-      if (messageCount >= (this.config.messageLimitThreshold || 10)) {
-        shouldSummarize = true;
-      }
-      // TODO: Add token count check
-
-      if (shouldSummarize && metadata) {
-        // Ensure metadata exists before updating
-        console.log(`[ContextService] Triggering background summarization for ${contextId}`);
-        const messages = await this.repositories.fs.loadMessages(contextId);
-        const result = await this.summarizer.summarize(messages, contextId);
-
-        if (result.success && result.summary) {
-          await this.repositories.fs.saveSummary(result.summary);
-          // Safe metadata update
-          const updatedMetadata: ContextMetadata = {
-            ...metadata, // Spread existing data
-            contextId: contextId, // Ensure contextId is explicitly set
-            messagesSinceLastSummary: 0,
-            hasSummary: true,
-            lastSummarizedAt: Date.now(),
-            importanceScore: result.summary.importanceScore,
-          };
-          await this.repositories.fs.saveContextData(contextId, updatedMetadata);
-          console.log(`[ContextService] Background summarization successful for ${contextId}`);
-        } else {
-          console.error(
-            `[ContextService] Background Summarization: Failed for ${contextId}. Error: ${result?.error}`
-          );
-        }
-      }
-    } catch (bgError: unknown) {
-      const errorMessage = bgError instanceof Error ? bgError.message : String(bgError);
-      console.error(
-        `[ContextService] Background summarization process failed for ${contextId}:`,
-        errorMessage
+      const result = await this.triggerManualSummarization(contextId);
+      console.log(
+        `[ContextService] Background summarization for ${contextId} completed. Success: ${result.success}`
       );
-    } finally {
-      if (stopTracking) stopTracking();
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[ContextService] Background summarization error: ${errorMessage}`);
     }
   }
 }

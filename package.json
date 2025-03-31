@@ -26,12 +26,11 @@
     "postbuild": "chmod +x dist/mcp-server.bundle.js",
     "start:mcp": "node dist/mcp-server.bundle.js",
     "start:standalone": "node dist/mcp-server.bundle.js",
-    "mcp": "ts-node src/mcp-server.ts",
+    "mcp": "ts-node src/main.ts",
     "dev": "webpack --watch --mode=development",
     "test:unit": "jest",
-    "test:integration": "node dist/mcp-server.test.bundle.js",
-    "test": "npm run lint && npm run build:test && npm run test:integration",
-    "build:test": "webpack --config webpack.test.config.js && chmod +x dist/mcp-server.test.bundle.js",
+    "test:integration": "node src/__tests__/test-mcp.js",
+    "test": "npm run lint && npm run build && npm run test:integration",
     "deploy": "npm run build && npm publish"
   },
   "keywords": [

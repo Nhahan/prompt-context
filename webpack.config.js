@@ -5,7 +5,7 @@ const webpack = require('webpack');
 module.exports = {
   target: 'node',
   mode: 'production',
-  entry: './src/mcp-server.ts',
+  entry: './src/main.ts',
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'mcp-server.bundle.js',
