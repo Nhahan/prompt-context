@@ -2,93 +2,70 @@
 
 ## Overview
 
-Prompt Context is an intelligent system for managing and retrieving conversations and related information. This document explains the core components, why each technology was chosen, and how they work together to create a cohesive system.
+Prompt Context is an intelligent MCP implementation designed to efficiently manage conversation context for AI agents. This document explains the core architecture and components of the system.
 
-## Key Components and Technology Choices
+## Core Components
 
-### Memory Context Protocol (MCP)
+### Context Service
 
-**Why This Technology**: MCP serves as the central coordinator because traditional database systems lack the contextual understanding needed for nuanced conversation management. We needed a protocol that could maintain relationship between conversation fragments while making intelligent decisions about what to keep and what to summarize.
+The Context Service is the heart of the implementation, responsible for:
 
-**Connections to Other Components**: MCP orchestrates all other components, deciding when to:
-- Request the Summarizer to condense conversations
-- Trigger the Vector Store to index new content
-- Use the File System Repository to persist data
+- Managing message storage and retrieval
+- Triggering automatic summarization when thresholds are reached
+- Coordinating between other components
+- Applying importance-based retention policies
+- Handling relationship tracking between contexts
 
-### Vector Database
+### Repository System
 
-**Why This Technology**: Traditional relational databases excel at exact matches but struggle with semantic similarity. Vector databases were chosen because they can represent the meaning of text mathematically, allowing the system to find related concepts even when the exact wording differs.
+The repository layer provides persistent storage through:
 
-**Connections to Other Components**: 
-- Receives processed text from the MCP
-- Stores embeddings generated from conversations and summaries
-- Provides similarity results to the MCP for context retrieval
-- Works alongside the Graph Database to create a web of related information
+- **File System Repository**: Stores raw context data and metadata in JSON format
+- **Vector Repository**: Manages vector embeddings for semantic search capabilities
+- **Graph Repository**: Tracks relationships between different contexts
 
-**How Vectors Work**:
-1. **Embedding Creation**: Text is converted into vectors (embeddings) consisting of hundreds of numbers. These numbers mathematically represent the meaning of the text.
-2. **Similarity Calculation**: The distance between two vectors is measured to calculate semantic similarity between texts. Closer distance means more similar meaning.
-3. **Efficient Searching**: Special indexing methods (HNSW) are used to quickly find similar items among millions of vectors.
+These repositories work together to create a complete picture of the conversation history and relationships between different topics.
 
-**Fallback Mode**: The system includes a fallback mode that switches to basic keyword matching if embedding generation fails, ensuring the system maintains at least minimal functionality in any situation.
+### Tool Implementation
 
-### Graph Database
+The MCP server exposes several tools for AI agents to use:
 
-**Why This Technology**: While vector similarity finds related content, it doesn't capture explicit relationships between contexts. Graph databases excel at representing and traversing relationships, allowing the system to understand that context A is a continuation of context B, or that context C references context D.
+- **Context Management**: `add_message`, `retrieve_context`, `summarize_context`
+- **Relationship Tools**: `add_relationship`, `get_related_contexts`
+- **Discovery Tools**: `get_similar_contexts`, `visualize_context`
+- **Analytics Tools**: `get_context_metrics`
 
-**Connections to Other Components**:
-- Receives relationship information from MCP
-- Complements the Vector Database by adding explicit relationship structure
-- Helps the MCP make decisions about hierarchical structuring of information
+Each tool maps to specific functionalities in the Context Service and repositories.
 
-### Summarizer Service
+## Key Features
 
-**Why This Technology**: Storing complete conversations indefinitely would be inefficient and overwhelming. The summarization technology condenses information while preserving key points, making the system more scalable and focused.
+### Automatic Summarization
 
-**Connections to Other Components**:
-- Receives conversations from MCP when they reach certain thresholds
-- Produces summaries that are stored in the File System Repository
-- Feeds these summaries to the Vector Database for efficient retrieval
-- Enables hierarchical summarization when working with the Graph Database
+When a context reaches a configurable threshold (default: 10 messages):
 
-### File System Repository
+1. The summarization process is triggered
+2. Important messages are identified based on tags and importance levels
+3. A summary is generated and stored with the context
+4. This summary becomes available for future retrieval
 
-**Why This Technology**: Instead of using complex database solutions for everything, a simple file-based storage system provides reliability, easy backups, and compatibility with version control systems like Git. This choice prioritizes simplicity and robustness.
+### Vector Similarity Search
 
-**Connections to Other Components**:
-- Provides persistent storage for all other components
-- Allows easy inspection and manual editing if needed
-- Enables version control integration for tracking context history
+The semantic search capability works by:
 
-## How These Technologies Work Together
+1. Converting text into numerical vector representations (embeddings)
+2. Indexing these embeddings for efficient retrieval
+3. Calculating similarity scores between queries and stored contexts
+4. Returning the most relevant contexts based on semantic meaning
 
-1. **Initial Conversation Storage**: 
-   - When a conversation begins, the MCP creates a unique context ID
-   - Raw messages are stored in the File System Repository
-   - The Graph Database begins tracking this as a new context node
+### Graph Relationships
 
-2. **Content Processing and Embedding**: 
-   - As content accumulates, the MCP sends it to be embedded
-   - The Vector Database processes and stores these embeddings
-   - This enables future semantic search capabilities
+The relationship tracking system:
 
-3. **Relationship Detection**:
-   - The MCP analyzes content for references to other contexts
-   - When found, the Graph Database creates relationship links
-   - These relationships can be based on content similarity or explicit references
+1. Stores explicit relationships between contexts (similar, references, continues, parent/child)
+2. Enables navigation between related concepts
+3. Builds a knowledge graph of conversational history
+4. Supports bidirectional traversal of connections
 
-4. **Summarization Workflow**:
-   - When conversations reach a threshold, the MCP triggers the Summarizer
-   - The Summarizer analyzes the conversation, preserving important information
-   - This summary is stored and embedded for future reference
+## Configuration
 
-5. **Hierarchical Organization**:
-   - Using both vector similarity and graph relationships, the MCP builds hierarchical structures
-   - Related contexts are grouped for higher-level understanding
-   - This creates a multi-level knowledge structure that mimics human memory organization
-
-6. **Context Retrieval Process**:
-   - When information is needed, the Vector Database finds semantically similar content
-   - The Graph Database provides relationship context
-   - The MCP combines these inputs to retrieve the most relevant information
-   - The File System Repository provides the actual content
+The system can be configured through various methods (CLI arguments, environment variables, configuration files) with sensible defaults. See the [README](../../README.md) for detailed configuration options.

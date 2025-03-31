@@ -10,7 +10,6 @@ AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용�
 - **중요도 기반 컨텍스트 유지**: 중요 정보를 자동으로 식별하고 보존
 - **자동 요약**: 메시지 수가 임계값에 도달하면 컨텍스트 요약 자동 생성
 - **컨텍스트 관계 추적**: 벡터 유사도와 그래프 관계로 연관된 대화를 연결하여 지식 맥락 유지
-- **API 호출 분석**: 벡터 및 그래프 데이터베이스와 LLM 서비스에 대한 API 호출을 추적하고 분석하여 성능 모니터링 및 최적화 지원
 
 ## 사용법
 
@@ -98,8 +97,17 @@ docker build -t prompt-context .
     *   `relationshipType` (enum, 선택): 관계 유형으로 필터링 ('similar', 'continues', 'references', 'parent', 'child').
     *   `direction` (enum, 선택, 기본값: 'both'): 관계 방향 ('incoming', 'outgoing', 'both').
 
-*   **`summarize_context`**: 주어진 컨텍스트 ID에 대한 요약을 생성하거나 업데이트합니다. 생성된 요약을 반환합니다.
-    *   `contextId` (string, 필수): 요약을 생성할 컨텍스트 ID입니다.
+*   **`summarize_context`**: 지정된 컨텍스트 ID에 대한 요약을 생성하거나 업데이트합니다. 생성된 요약을 반환합니다.
+    *   `contextId` (문자열, 필수): 요약을 생성할 컨텍스트 ID.
+
+*   **`visualize_context`**: 컨텍스트를 시각화하거나 모든 세션 컨텍스트를 다양한 형식으로 나열합니다.
+    *   `contextId` (문자열, 선택적): 시각화할 컨텍스트 ID. 제공되지 않으면 세션 목록을 반환합니다.
+    *   `includeRelated` (불리언, 선택적, 기본값: true): 관련 컨텍스트를 포함할지 여부.
+    *   `depth` (숫자, 선택적, 기본값: 1): 포함할 관련 컨텍스트의 깊이(1-3).
+    *   `format` (열거형, 선택적, 기본값: 'json'): 출력 형식('json', 'mermaid', 'text').
+
+*   **`get_context_metrics`**: 컨텍스트 작업에 대한 사용 지표 및 분석을 검색합니다.
+    *   `period` (열거형, 선택적, 기본값: 'week'): 분석할 기간('day', 'week', 'month').
 
 ## 문서
 
@@ -110,50 +118,97 @@ docker build -t prompt-context .
 
 ## 구성
 
-MCP는 합리적인 기본값으로 제공되며 별도의 구성 없이도 작동합니다. 그러나 필요한 경우 MCP를 초기화하고 구성할 수 있습니다:
+MCP는 합리적인 기본값으로 제공되며 별도의 구성 없이도 작동합니다. 서버는 다음 우선순위에 따라 여러 방법으로 구성할 수 있습니다:
 
-```bash
-# 현재 디렉토리에서 MCP 초기화(.mcp-config.json 생성)
-npx prompt-context init
+1. **CLI 인수:**
+   ```bash
+   # 특정 구성 옵션으로 실행
+   npx prompt-context --config '{"messageLimitThreshold": 15, "useVectorDb": true}'
+   
+   # 더 복잡한 구성을 위해 node를 직접 사용
+   node -e "require('prompt-context').start({messageLimitThreshold: 15, contextDir: './custom-contexts'})"
+   
+   # 특정 구성으로 mcp 서버로 실행
+   npx prompt-context --mcp --config '{"messageLimitThreshold": 15}'
+   
+   # 현재 디렉토리에서 MCP 초기화(.mcp-config.json 생성)
+   npx prompt-context init
+   
+   # 현재 구성 보기
+   npx prompt-context config
+   
+   # 특정 설정 업데이트
+   npx prompt-context config hierarchicalContext true
+   ```
 
-# 현재 구성 보기
-npx prompt-context config
+2. **환경 변수:**
+   ```bash
+   # 구성을 위한 환경 변수 설정
+   CONTEXT_DIR=/custom/path AUTO_SUMMARIZE=false npx prompt-context
+   
+   # 여러 환경 변수 사용
+   MESSAGE_LIMIT_THRESHOLD=15 TOKEN_LIMIT_PERCENTAGE=70 AUTO_SUMMARIZE=true npx prompt-context
+   ```
 
-# 특정 설정 업데이트
-npx prompt-context config hierarchicalContext true
-```
+3. **`.mcp-config.json` 파일:** 
+   ```json
+   {
+     "messageLimitThreshold": 15,
+     "useVectorDb": true,
+     "contextDir": "./custom-contexts"
+   }
+   ```
 
-서버는 다음 우선순위에 따라 여러 방법으로 구성할 수 있습니다:
-
-1.  **CLI 인수:**
-    *   `--port <number>`: HTTP 포트를 지정합니다(추후 HTTP 전송이 추가될 경우).
-    *   `--config '{"key": "value"}'`: 특정 구성을 재정의하기 위한 JSON 문자열을 제공합니다.
-2.  **환경 변수:** 구성 키에 해당하는 환경 변수를 설정합니다(예: `CONTEXT_DIR`, `AUTO_SUMMARIZE=false`). 불리언 값은 `true`/`false`에서 파싱되고, 숫자는 파싱되며, 배열/객체는 JSON 문자열이어야 합니다.
-3.  **`.mcp-config.json` 파일:** 기본 디렉토리(`~/.mcp-servers/prompt-context` 기본값 또는 `MCP_SERVER_BASE_DIR` 환경 변수로 정의됨)에 `.mcp-config.json` 파일을 생성합니다.
-4.  **기본 구성:** 다른 구성이 제공되지 않으면 서버는 `src/mcp-server.ts`에 정의된 기본값을 사용합니다.
+4. **기본 구성:** 다른 구성이 제공되지 않으면 서버는 기본값을 사용합니다.
 
 ### 구성 옵션
 
-MCP 서버는 다음 구성 옵션을 인식합니다:
+| 옵션 | 설명 | 기본값 | 예시 |
+|------|------|--------|--------|
+| `messageLimitThreshold` | 요약을 트리거하는 메시지 수 임계값 | 10 | `{"messageLimitThreshold": 15}` |
+| `tokenLimitPercentage` | 모델 한도의 백분율로 표시된 토큰 수 임계값 | 80 | `{"tokenLimitPercentage": 70}` |
+| `contextDir` | 컨텍스트 저장소 디렉토리 | '.prompt-context' | `{"contextDir": "./contexts"}` |
+| `ignorePatterns` | 무시할 파일 및 디렉토리 패턴 | [] | `{"ignorePatterns": ["temp/*"]}` |
+| `autoSummarize` | 자동 요약 활성화 여부 | true | `{"autoSummarize": false}` |
+| `hierarchicalContext` | 계층적 컨텍스트 관리 활성화 | true | `{"hierarchicalContext": true}` |
+| `metaSummaryThreshold` | 메타 요약을 생성하기 전 컨텍스트 수 | 5 | `{"metaSummaryThreshold": 10}` |
+| `maxHierarchyDepth` | 메타 요약의 최대 계층 깊이 | 3 | `{"maxHierarchyDepth": 5}` |
+| `useVectorDb` | 벡터 유사성 검색 활성화 | true | `{"useVectorDb": true}` |
+| `useGraphDb` | 그래프 기반 컨텍스트 관계 활성화 | true | `{"useGraphDb": true}` |
+| `similarityThreshold` | 관련 컨텍스트의 최소 유사성 임계값 | 0.6 | `{"similarityThreshold": 0.7}` |
+| `autoCleanupContexts` | 관련 없는 컨텍스트의 자동 정리 활성화 | true | `{"autoCleanupContexts": false}` |
+| `trackApiCalls` | API 호출 추적 및 분석 활성화 | true | `{"trackApiCalls": true}` |
+| `apiAnalyticsRetention` | API 호출 데이터 보존 일수 | 30 | `{"apiAnalyticsRetention": 15}` |
+| `fallbackToKeywordMatch` | 벡터 검색 실패 시 키워드 매칭 사용 여부 | true | `{"fallbackToKeywordMatch": true}` |
+| `port` | 서버 포트 번호 (비 MCP 모드용) | 6789 | `{"port": 8080}` |
 
-| 옵션 | 설명 | 기본값 |
-|------|------|--------|
-| `messageLimitThreshold` | 요약을 트리거하는 메시지 수 임계값 | 10 |
-| `tokenLimitPercentage` | 모델 제한의 백분율로 표시되는 토큰 수 임계값 | 80 |
-| `contextDir` | 컨텍스트 저장 디렉토리 | '.prompt-context' |
-| `ignorePatterns` | 무시할 파일 및 디렉토리 패턴 | [] |
-| `autoSummarize` | 자동 요약 활성화 여부 | true |
-| `hierarchicalContext` | 계층적 컨텍스트 관리 활성화 | true |
-| `metaSummaryThreshold` | 메타 요약을 생성하기 전 컨텍스트 수 | 5 |
-| `maxHierarchyDepth` | 메타 요약의 최대 계층 깊이 | 3 |
-| `useVectorDb` | 벡터 유사도 검색 활성화 | true |
-| `useGraphDb` | 그래프 기반 컨텍스트 관계 활성화 | true |
-| `similarityThreshold` | 관련 컨텍스트의 최소 유사도 임계값 | 0.6 |
-| `autoCleanupContexts` | 관련 없는 컨텍스트의 자동 정리 활성화 | true |
-| `trackApiCalls` | API 호출 추적 및 분석 활성화 | true |
-| `apiAnalyticsRetention` | API 호출 데이터 보존 일수 | 30 |
-| `fallbackToKeywordMatch` | 벡터 검색 실패 시 키워드 매칭 사용 여부 | true |
-| `port` | 서버 포트 번호 (MCP 모드가 아닐 경우) | 6789 |
+**여러 옵션 예제:**
+```bash
+npx prompt-context --config '{
+  "messageLimitThreshold": 15,
+  "contextDir": "./project-contexts",
+  "useVectorDb": true,
+  "similarityThreshold": 0.7,
+  "autoCleanupContexts": false
+}'
+```
+
+**MCP 클라이언트와 함께 여러 옵션 구성:**
+```json
+{
+  "mcpServers": {
+    "Prompt Context": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "prompt-context",
+        "--config",
+        "{\"messageLimitThreshold\": 15, \"contextDir\": \"./project-contexts\"}"
+      ]
+    }
+  }
+}
+```
 
 ## 팀 환경에서 MCP 사용하기
 

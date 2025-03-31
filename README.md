@@ -10,7 +10,6 @@ An MCP protocol that helps AI agents efficiently remember and utilize previous c
 *   **Importance-Based Context Retention**: Automatically identifies and preserves important information
 *   **Automatic Summarization**: Automatically generates context summaries when message count reaches threshold
 *   **Context Relationship Tracking**: Connects related conversations through vector similarity and graph relationships to maintain knowledge context
-*   **API Call Analytics**: Tracks and analyzes API calls to vector and graph databases and LLM services for performance monitoring and optimization
 
 ## Usage
 
@@ -101,6 +100,15 @@ This server provides various tools for managing conversation contexts and relati
 *   **`summarize_context`**: Generates or updates a summary for the given context ID. Returns the generated summary.
     *   `contextId` (string, required): Context ID to generate summary for.
 
+*   **`visualize_context`**: Visualizes a context or lists all session contexts in different formats.
+    *   `contextId` (string, optional): Context ID to visualize. If not provided, returns a list of sessions.
+    *   `includeRelated` (boolean, optional, default: true): Whether to include related contexts.
+    *   `depth` (number, optional, default: 1): Depth of related contexts to include (1-3).
+    *   `format` (enum, optional, default: 'json'): Output format ('json', 'mermaid', 'text').
+
+*   **`get_context_metrics`**: Retrieves usage metrics and analytics for context operations.
+    *   `period` (enum, optional, default: 'week'): Time period to analyze ('day', 'week', 'month').
+
 ## Documentation
 
 For more detailed information, refer to the documentation in the `docs` directory:
@@ -110,50 +118,97 @@ For more detailed information, refer to the documentation in the `docs` director
 
 ## Configuration
 
-MCP comes with sensible defaults and works without additional configuration. However, you can initialize and configure MCP if needed:
+MCP comes with sensible defaults and works without additional configuration. The server can be configured through multiple methods, prioritized in the following order:
 
-```bash
-# Initialize MCP in the current directory (creates .mcp-config.json)
-npx prompt-context init
+1. **CLI Arguments:**
+   ```bash
+   # Run with specific configuration options
+   npx prompt-context --config '{"messageLimitThreshold": 15, "useVectorDb": true}'
+   
+   # Using node directly for more complex configurations
+   node -e "require('prompt-context').start({messageLimitThreshold: 15, contextDir: './custom-contexts'})"
+   
+   # Run as an mcp server with specific configuration
+   npx prompt-context --mcp --config '{"messageLimitThreshold": 15}'
+   
+   # Initialize MCP in the current directory (creates .mcp-config.json)
+   npx prompt-context init
+   
+   # View current configuration
+   npx prompt-context config
+   
+   # Update specific settings
+   npx prompt-context config hierarchicalContext true
+   ```
 
-# View current configuration
-npx prompt-context config
+2. **Environment Variables:**
+   ```bash
+   # Set environment variables for configuration
+   CONTEXT_DIR=/custom/path AUTO_SUMMARIZE=false npx prompt-context
+   
+   # Using multiple environment variables
+   MESSAGE_LIMIT_THRESHOLD=15 TOKEN_LIMIT_PERCENTAGE=70 AUTO_SUMMARIZE=true npx prompt-context
+   ```
 
-# Update specific settings
-npx prompt-context config hierarchicalContext true
-```
+3. **`.mcp-config.json` File:** 
+   ```json
+   {
+     "messageLimitThreshold": 15,
+     "useVectorDb": true,
+     "contextDir": "./custom-contexts"
+   }
+   ```
 
-The server can be configured through multiple methods, prioritized in the following order:
-
-1.  **CLI Arguments:**
-    *   `--port <number>`: Specify the HTTP port (if an HTTP transport is added later).
-    *   `--config '{"key": "value"}'`: Provide a JSON string to override specific configurations.
-2.  **Environment Variables:** Set environment variables corresponding to configuration keys (e.g., `CONTEXT_DIR`, `AUTO_SUMMARIZE=false`). Boolean values are parsed from `true`/`false`, numbers are parsed, and arrays/objects should be JSON strings.
-3.  **`.mcp-config.json` File:** Create a `.mcp-config.json` file in the base directory (`~/.mcp-servers/prompt-context` by default, or defined by `MCP_SERVER_BASE_DIR` env var).
-4.  **Default Configuration:** If no other configuration is provided, the server uses default values defined in `src/mcp-server.ts`.
+4. **Default Configuration:** If no other configuration is provided, the server uses default values.
 
 ### Configuration Options
 
-The MCP server recognizes the following configuration options:
+| Option | Description | Default | Example |
+|------|------|--------|--------|
+| `messageLimitThreshold` | Message count threshold to trigger summarization | 10 | `{"messageLimitThreshold": 15}` |
+| `tokenLimitPercentage` | Token count threshold as percentage of model limit | 80 | `{"tokenLimitPercentage": 70}` |
+| `contextDir` | Directory for context storage | '.prompt-context' | `{"contextDir": "./contexts"}` |
+| `ignorePatterns` | Patterns of files and directories to ignore | [] | `{"ignorePatterns": ["temp/*"]}` |
+| `autoSummarize` | Whether to enable automatic summarization | true | `{"autoSummarize": false}` |
+| `hierarchicalContext` | Enable hierarchical context management | true | `{"hierarchicalContext": true}` |
+| `metaSummaryThreshold` | Number of contexts before generating a meta-summary | 5 | `{"metaSummaryThreshold": 10}` |
+| `maxHierarchyDepth` | Maximum hierarchy depth for meta-summaries | 3 | `{"maxHierarchyDepth": 5}` |
+| `useVectorDb` | Enable vector similarity search | true | `{"useVectorDb": true}` |
+| `useGraphDb` | Enable graph-based context relationships | true | `{"useGraphDb": true}` |
+| `similarityThreshold` | Minimum similarity threshold for related contexts | 0.6 | `{"similarityThreshold": 0.7}` |
+| `autoCleanupContexts` | Enable automatic cleanup of unrelated contexts | true | `{"autoCleanupContexts": false}` |
+| `trackApiCalls` | Enable tracking and analytics of API calls | true | `{"trackApiCalls": true}` |
+| `apiAnalyticsRetention` | Number of days to retain API call data | 30 | `{"apiAnalyticsRetention": 15}` |
+| `fallbackToKeywordMatch` | Whether to use keyword matching when vector search fails | true | `{"fallbackToKeywordMatch": true}` |
+| `port` | Server port number (for non-MCP mode) | 6789 | `{"port": 8080}` |
 
-| Option | Description | Default |
-|------|------|--------|
-| `messageLimitThreshold` | Message count threshold to trigger summarization | 10 |
-| `tokenLimitPercentage` | Token count threshold as percentage of model limit | 80 |
-| `contextDir` | Directory for context storage | '.prompt-context' |
-| `ignorePatterns` | Patterns of files and directories to ignore | [] |
-| `autoSummarize` | Whether to enable automatic summarization | true |
-| `hierarchicalContext` | Enable hierarchical context management | true |
-| `metaSummaryThreshold` | Number of contexts before generating a meta-summary | 5 |
-| `maxHierarchyDepth` | Maximum hierarchy depth for meta-summaries | 3 |
-| `useVectorDb` | Enable vector similarity search | true |
-| `useGraphDb` | Enable graph-based context relationships | true |
-| `similarityThreshold` | Minimum similarity threshold for related contexts | 0.6 |
-| `autoCleanupContexts` | Enable automatic cleanup of unrelated contexts | true |
-| `trackApiCalls` | Enable tracking and analytics of API calls | true |
-| `apiAnalyticsRetention` | Number of days to retain API call data | 30 |
-| `fallbackToKeywordMatch` | Whether to use keyword matching when vector search fails | true |
-| `port` | Server port number (for non-MCP mode) | 6789 |
+**Example with Multiple Options:**
+```bash
+npx prompt-context --config '{
+  "messageLimitThreshold": 15,
+  "contextDir": "./project-contexts",
+  "useVectorDb": true,
+  "similarityThreshold": 0.7,
+  "autoCleanupContexts": false
+}'
+```
+
+**Multiple Option Configuration with MCP Client:**
+```json
+{
+  "mcpServers": {
+    "Prompt Context": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "prompt-context",
+        "--config",
+        "{\"messageLimitThreshold\": 15, \"contextDir\": \"./project-contexts\"}"
+      ]
+    }
+  }
+}
+```
 
 ## Using MCP in Team Environments
 
