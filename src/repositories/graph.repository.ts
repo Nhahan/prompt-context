@@ -13,7 +13,7 @@ interface Edge {
   type: ContextRelationshipType;
   weight: number;
   createdAt: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -82,7 +82,7 @@ export class GraphRepository implements GraphRepositoryInterface {
     target: string,
     type: ContextRelationshipType,
     weight: number,
-    metadata: Record<string, any> = {}
+    metadata: Record<string, unknown> = {}
   ): Promise<void> {
     await this.ensureInitialized();
 

@@ -129,7 +129,7 @@ export interface ContextRelationship {
   /** When the relationship was created */
   createdAt: number;
   /** Additional metadata */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**

@@ -20,7 +20,7 @@ export function loadConfig(args: string[] = process.argv.slice(2)): MCPConfig {
   try {
     fs.ensureDirSync(baseDir);
     console.error(`[MCP Server] Base directory ensured: ${baseDir}`);
-  } catch (err: any) {
+  } catch (err: Error | unknown) {
     console.error(`[MCP Server] CRITICAL ERROR ensuring base directory ${baseDir}:`, err);
     process.exit(1);
   }
@@ -58,7 +58,7 @@ export function loadConfig(args: string[] = process.argv.slice(2)): MCPConfig {
     const envVarKey = key.replace(/([A-Z])/g, '_$1').toUpperCase();
     const envValue = process.env[envVarKey];
     if (envValue !== undefined) {
-      let parsedValue: any = envValue;
+      let parsedValue: unknown = envValue;
       try {
         parsedValue = JSON.parse(envValue);
       } catch (e) {
@@ -67,19 +67,25 @@ export function loadConfig(args: string[] = process.argv.slice(2)): MCPConfig {
         else if (!isNaN(Number(envValue))) parsedValue = Number(envValue);
         else parsedValue = envValue;
       }
-      if (typeof parsedValue === typeof (DEFAULT_CONFIG as any)[key]) {
-        (config as any)[key] = parsedValue;
+
+      // type guards for safe type casting
+      const defaultValue = DEFAULT_CONFIG[key as keyof typeof DEFAULT_CONFIG];
+      const defaultValueType = typeof defaultValue;
+      const parsedValueType = typeof parsedValue;
+
+      if (parsedValueType === defaultValueType) {
+        (config as Record<string, unknown>)[key] = parsedValue;
         console.error(
           `[MCP Server] Overridden config with env var ${envVarKey}=${JSON.stringify(parsedValue)}`
         );
       } else if (key === 'ignorePatterns' && Array.isArray(parsedValue)) {
-        (config as any)[key] = parsedValue;
+        (config as Record<string, unknown>)[key] = parsedValue;
         console.error(
           `[MCP Server] Overridden config with env var ${envVarKey}=${JSON.stringify(parsedValue)}`
         );
       } else {
         console.error(
-          `[MCP Server] Env var ${envVarKey} type mismatch. Expected ${typeof (DEFAULT_CONFIG as any)[key]}, got ${typeof parsedValue}. Skipping.`
+          `[MCP Server] Env var ${envVarKey} type mismatch. Expected ${defaultValueType}, got ${parsedValueType}. Skipping.`
         );
       }
     }
@@ -116,7 +122,7 @@ export function loadConfig(args: string[] = process.argv.slice(2)): MCPConfig {
   try {
     fs.ensureDirSync(config.contextDir);
     console.error(`[MCP Server] Ensured final context directory exists: ${config.contextDir}`);
-  } catch (err: any) {
+  } catch (err: Error | unknown) {
     console.error(
       `[MCP Server] CRITICAL ERROR ensuring final context directory ${config.contextDir}:`,
       err

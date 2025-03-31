@@ -10,6 +10,18 @@ import {
 } from '../domain/types';
 
 /**
+ * Edge type for graph relationships
+ */
+export interface EdgeType {
+  source: string;
+  target: string;
+  type: ContextRelationshipType;
+  weight: number;
+  createdAt: number;
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * Base repository interface for context data persistence
  */
 export interface Repository {
@@ -178,7 +190,7 @@ export interface GraphRepositoryInterface {
     target: string,
     type: ContextRelationshipType,
     weight: number,
-    metadata?: any
+    metadata?: Record<string, unknown>
   ): Promise<void>;
 
   /**
@@ -186,7 +198,7 @@ export interface GraphRepositoryInterface {
    * @param contextId Context ID
    * @returns Array of edges connected to the context
    */
-  getRelationships(contextId: string): Promise<any[]>;
+  getRelationships(contextId: string): Promise<EdgeType[]>;
 
   /**
    * Remove all relationships for a context
