@@ -58,7 +58,7 @@ export class VectorRepository {
         const hnswlib = await import('hnswlib-node');
         this.index = new hnswlib.HierarchicalNSW('cosine', 384);
         this.index.initIndex(1000, 16, 200);
-        
+
         await this.loadState();
       } catch (error) {
         console.error('[VectorRepository] Error initializing index:', error);
@@ -74,11 +74,11 @@ export class VectorRepository {
     if (!Array.isArray(embedding)) {
       throw new Error('Embedding must be an array');
     }
-    
+
     if (embedding.length === 0) {
       throw new Error('Embedding cannot be empty');
     }
-    
+
     return embedding;
   }
 

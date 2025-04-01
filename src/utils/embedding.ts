@@ -316,29 +316,29 @@ export class EmbeddingUtil {
   private convertTensorData(tensor: ort.Tensor): number[] {
     // onnx는 Float32Array를 기대하지만, 브라우저나 Node.js 환경에 따라 다른 형태일 수 있음
     // 따라서 명시적으로 숫자 배열로 변환하는 로직이 필요함
-    
+
     try {
       // 1. TypedArray 확인
       if (tensor.data instanceof Float32Array) {
         return Array.from(tensor.data);
       }
-      
+
       // 2. ArrayBuffer일 경우
       if (tensor.data instanceof ArrayBuffer) {
         return Array.from(new Float32Array(tensor.data));
       }
-      
+
       // 3. 일반 배열인 경우
       if (Array.isArray(tensor.data)) {
-        return (tensor.data as unknown[]).map(val => Number(val));
+        return (tensor.data as unknown[]).map((val) => Number(val));
       }
-      
+
       // 4. Object일 경우 (onnx-runtime 내부 표현 방식에 따라 다름)
       if (typeof tensor.data === 'object' && tensor.data !== null) {
         // onnx-runtime이 Float32Array를 기대하는 형태로 명시적 변환 시도
         const size = tensor.dims.reduce((a, b) => a * b, 1);
         const result = new Array(size);
-        
+
         // 데이터가 순차적인 키를 가지고 있는지 확인
         for (let i = 0; i < size; i++) {
           if (i in tensor.data) {
@@ -347,14 +347,16 @@ export class EmbeddingUtil {
             result[i] = 0; // 기본값
           }
         }
-        
+
         return result;
       }
-      
+
       throw new Error(`Unsupported tensor data type: ${typeof tensor.data}`);
     } catch (error) {
       // 변환 중 오류가 발생하면 명시적으로 던져서 호출자가 처리하도록 함
-      throw new Error(`Failed to convert tensor data: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to convert tensor data: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 

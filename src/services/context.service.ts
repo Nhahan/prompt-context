@@ -100,7 +100,11 @@ export class ContextService {
           }
 
           // Add or update the vector context
-          if (fullContext.summary && typeof fullContext.summary !== 'string' && fullContext.summary.summary) {
+          if (
+            fullContext.summary &&
+            typeof fullContext.summary !== 'string' &&
+            fullContext.summary.summary
+          ) {
             // If we have a summary, use both the full text and summary for better embedding
             await this.repositories.vector.updateContext(
               message.contextId,
