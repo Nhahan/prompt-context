@@ -1,30 +1,24 @@
+import graphology from 'graphology';
 import fs from 'fs-extra';
 import path from 'path';
-import Graph from 'graphology';
 import { GraphRepositoryInterface, EdgeType } from './repository.interface';
 import { ContextRelationshipType } from '../domain/types';
-
-interface GraphDBOptions {
-  path: string;
-}
 
 /**
  * Repository for managing graph database operations
  */
 export class GraphRepository implements GraphRepositoryInterface {
+  private graph: graphology;
   private dbPath: string;
-  private graph: Graph | null = null;
   private isInitialized: boolean = false;
 
   /**
    * Create a new graph repository instance
+   * @param contextDir The directory where graph data will be stored
    */
-  constructor(pathOrOptions: string | GraphDBOptions) {
-    if (typeof pathOrOptions === 'string') {
-      this.dbPath = pathOrOptions;
-    } else {
-      this.dbPath = pathOrOptions.path;
-    }
+  constructor(contextDir: string) {
+    this.graph = new graphology();
+    this.dbPath = path.join(contextDir, 'graph-data.json');
   }
 
   /**
@@ -36,61 +30,29 @@ export class GraphRepository implements GraphRepositoryInterface {
     try {
       await fs.ensureDir(path.dirname(this.dbPath));
 
-      // Load or create graph
-      await this.loadOrCreateGraph();
+      // Load existing graph if it exists
+      if (await fs.pathExists(this.dbPath)) {
+        const data = await fs.readFile(this.dbPath, 'utf-8');
+        const graphData = JSON.parse(data);
+        this.graph.import(graphData);
+      }
 
       this.isInitialized = true;
     } catch (error) {
-      console.error('Error initializing graph database:', error);
-      throw error;
+      console.error('Failed to initialize graph repository:', error);
+      // Continue with empty graph if load fails
     }
   }
 
   /**
-   * Load existing graph or create a new one
-   */
-  private async loadOrCreateGraph(): Promise<void> {
-    const graphPath = path.join(this.dbPath, 'graph.json');
-
-    try {
-      // Check if graph exists
-      if (await fs.pathExists(graphPath)) {
-        // Load existing graph
-        const graphData = await fs.readFile(graphPath, 'utf8');
-        this.graph = new Graph();
-        this.graph.import(JSON.parse(graphData));
-      } else {
-        // Create new graph
-        this.graph = new Graph();
-
-        // Save empty graph
-        await this.saveGraph();
-      }
-    } catch (error) {
-      console.error('Error loading graph:', error);
-
-      // Create new graph on error
-      this.graph = new Graph();
-
-      // Save empty graph
-      await this.saveGraph();
-    }
-  }
-
-  /**
-   * Save the graph to disk
+   * Save the current graph state to disk
    */
   private async saveGraph(): Promise<void> {
-    if (!this.graph) return;
-
-    const graphPath = path.join(this.dbPath, 'graph.json');
-
     try {
-      await fs.ensureDir(path.dirname(graphPath));
-      await fs.writeFile(graphPath, JSON.stringify(this.graph.export()), 'utf8');
+      await fs.ensureDir(path.dirname(this.dbPath));
+      await fs.writeFile(this.dbPath, JSON.stringify(this.graph.export()), 'utf-8');
     } catch (error) {
-      console.error('Error saving graph:', error);
-      throw error;
+      console.error('Failed to save graph data:', error);
     }
   }
 
@@ -101,34 +63,29 @@ export class GraphRepository implements GraphRepositoryInterface {
     source: string,
     target: string,
     type: ContextRelationshipType,
-    weight: number = 0.5,
-    metadata: Record<string, unknown> = {}
+    weight: number,
+    metadata?: Record<string, unknown>
   ): Promise<void> {
     await this.ensureInitialized();
-
-    if (!this.graph) {
-      throw new Error('Graph not initialized');
-    }
 
     try {
       // Ensure nodes exist
       if (!this.graph.hasNode(source)) {
-        this.graph.addNode(source, { id: source });
+        this.graph.addNode(source);
       }
-
       if (!this.graph.hasNode(target)) {
-        this.graph.addNode(target, { id: target });
+        this.graph.addNode(target);
       }
 
-      // Check if edge already exists
+      // Add or update edge
       const edgeId = `${source}--${target}`;
       if (this.graph.hasEdge(edgeId)) {
-        // Update existing edge
         this.graph.setEdgeAttribute(edgeId, 'type', type);
         this.graph.setEdgeAttribute(edgeId, 'weight', weight);
-        this.graph.setEdgeAttribute(edgeId, 'metadata', metadata);
+        if (metadata) {
+          this.graph.setEdgeAttribute(edgeId, 'metadata', metadata);
+        }
       } else {
-        // Add new edge
         this.graph.addEdgeWithKey(edgeId, source, target, {
           type,
           weight,
@@ -137,10 +94,10 @@ export class GraphRepository implements GraphRepositoryInterface {
         });
       }
 
-      // Save the updated graph
+      // Save changes to disk
       await this.saveGraph();
     } catch (error) {
-      console.error('Error adding relationship to graph:', error);
+      console.error('Error adding relationship:', error);
       throw error;
     }
   }
@@ -151,43 +108,33 @@ export class GraphRepository implements GraphRepositoryInterface {
   public async getRelatedContexts(
     contextId: string,
     type?: ContextRelationshipType,
-    direction: 'incoming' | 'outgoing' | 'both' = 'both'
+    direction: 'outgoing' | 'incoming' | 'both' = 'both'
   ): Promise<string[]> {
     await this.ensureInitialized();
-
-    if (!this.graph || !this.graph.hasNode(contextId)) {
-      return [];
-    }
 
     try {
       const relatedContexts = new Set<string>();
 
-      // Get outgoing edges
       if (direction === 'outgoing' || direction === 'both') {
-        const outEdges = this.graph.outEdges(contextId);
-        for (const edge of outEdges) {
-          const edgeType = this.graph.getEdgeAttribute(edge, 'type');
-          if (!type || edgeType === type) {
-            relatedContexts.add(this.graph.target(edge));
+        this.graph.forEachOutNeighbor(contextId, (neighbor, attributes) => {
+          if (!type || attributes.type === type) {
+            relatedContexts.add(neighbor);
           }
-        }
+        });
       }
 
-      // Get incoming edges
       if (direction === 'incoming' || direction === 'both') {
-        const inEdges = this.graph.inEdges(contextId);
-        for (const edge of inEdges) {
-          const edgeType = this.graph.getEdgeAttribute(edge, 'type');
-          if (!type || edgeType === type) {
-            relatedContexts.add(this.graph.source(edge));
+        this.graph.forEachInNeighbor(contextId, (neighbor, attributes) => {
+          if (!type || attributes.type === type) {
+            relatedContexts.add(neighbor);
           }
-        }
+        });
       }
 
       return Array.from(relatedContexts);
     } catch (error) {
       console.error('Error getting related contexts:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -197,55 +144,24 @@ export class GraphRepository implements GraphRepositoryInterface {
   public async getRelationships(contextId: string): Promise<EdgeType[]> {
     await this.ensureInitialized();
 
-    if (!this.graph || !this.graph.hasNode(contextId)) {
-      return [];
-    }
-
     try {
-      const relationships: EdgeType[] = [];
-
-      // Get outgoing edges
-      const outEdges = this.graph.outEdges(contextId);
-      for (const edge of outEdges) {
-        const target = this.graph.target(edge);
-        const type = this.graph.getEdgeAttribute(edge, 'type');
-        const weight = this.graph.getEdgeAttribute(edge, 'weight') || 0.5;
-        const createdAt = this.graph.getEdgeAttribute(edge, 'createdAt') || Date.now();
-        const metadata = this.graph.getEdgeAttribute(edge, 'metadata') || {};
-
-        relationships.push({
-          source: contextId,
-          target,
-          type,
-          weight,
-          createdAt,
-          metadata,
-        });
-      }
-
-      // Get incoming edges
-      const inEdges = this.graph.inEdges(contextId);
-      for (const edge of inEdges) {
-        const source = this.graph.source(edge);
-        const type = this.graph.getEdgeAttribute(edge, 'type');
-        const weight = this.graph.getEdgeAttribute(edge, 'weight') || 0.5;
-        const createdAt = this.graph.getEdgeAttribute(edge, 'createdAt') || Date.now();
-        const metadata = this.graph.getEdgeAttribute(edge, 'metadata') || {};
-
-        relationships.push({
-          source,
-          target: contextId,
-          type,
-          weight,
-          createdAt,
-          metadata,
-        });
-      }
-
-      return relationships;
+      const edges: EdgeType[] = [];
+      this.graph.forEachEdge((edge, attributes, source, target) => {
+        if (source === contextId || target === contextId) {
+          edges.push({
+            source,
+            target,
+            type: attributes.type,
+            weight: attributes.weight,
+            createdAt: attributes.createdAt,
+            metadata: attributes.metadata,
+          });
+        }
+      });
+      return edges;
     } catch (error) {
       console.error('Error getting relationships:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -255,18 +171,14 @@ export class GraphRepository implements GraphRepositoryInterface {
   public async removeContext(contextId: string): Promise<void> {
     await this.ensureInitialized();
 
-    if (!this.graph || !this.graph.hasNode(contextId)) {
-      return;
-    }
-
     try {
-      // Remove the node (graphology automatically removes connected edges)
-      this.graph.dropNode(contextId);
-
-      // Save the updated graph
-      await this.saveGraph();
+      if (this.graph.hasNode(contextId)) {
+        this.graph.dropNode(contextId);
+        // Save changes to disk
+        await this.saveGraph();
+      }
     } catch (error) {
-      console.error('Error removing context from graph:', error);
+      console.error('Error removing context:', error);
       throw error;
     }
   }
@@ -277,47 +189,41 @@ export class GraphRepository implements GraphRepositoryInterface {
   public async findPath(sourceId: string, targetId: string): Promise<string[]> {
     await this.ensureInitialized();
 
-    if (!this.graph || !this.graph.hasNode(sourceId) || !this.graph.hasNode(targetId)) {
-      return [];
-    }
-
     try {
-      // Simple BFS to find a path
-      const visited = new Set<string>();
-      const queue: Array<{ node: string; path: string[] }> = [{ node: sourceId, path: [sourceId] }];
+      if (!this.graph.hasNode(sourceId) || !this.graph.hasNode(targetId)) {
+        return [];
+      }
+      // Simple BFS implementation
+      const queue: string[] = [sourceId];
+      const visited = new Set<string>([sourceId]);
+      const parent = new Map<string, string>();
 
       while (queue.length > 0) {
-        const { node, path } = queue.shift()!;
-
-        if (node === targetId) {
+        const current = queue.shift()!;
+        if (current === targetId) {
+          // Reconstruct path
+          const path: string[] = [targetId];
+          let node = targetId;
+          while (parent.has(node)) {
+            node = parent.get(node)!;
+            path.unshift(node);
+          }
           return path;
         }
 
-        if (visited.has(node)) {
-          continue;
-        }
-
-        visited.add(node);
-
-        // Add neighbors to queue
-        const neighbors = this.graph.neighbors(node);
-        for (const neighbor of neighbors) {
+        this.graph.forEachNeighbor(current, (neighbor) => {
           if (!visited.has(neighbor)) {
-            queue.push({
-              node: neighbor,
-              path: [...path, neighbor],
-            });
+            visited.add(neighbor);
+            queue.push(neighbor);
+            parent.set(neighbor, current);
           }
-        }
+        });
       }
 
-      // No path found
       return [];
     } catch (error) {
-      console.error('Error finding path between contexts:', error);
-      return [];
+      console.error('Error finding path:', error);
+      throw error;
     }
   }
 }
-
-export default GraphRepository;

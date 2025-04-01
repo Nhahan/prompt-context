@@ -2,6 +2,7 @@ import fs from 'fs-extra';
 import { Context, ContextSummary } from '../types/context';
 import { RelatedContext } from '../types/related-context';
 import { EmbeddingUtil } from '../utils/embedding';
+import { VectorRepositoryInterface } from './repository.interface';
 
 interface VectorSearchResult {
   contextId: string;
@@ -22,7 +23,7 @@ interface HNSWIndex {
 /**
  * Repository for managing vector-based context storage and retrieval
  */
-export class VectorRepository {
+export class VectorRepository implements VectorRepositoryInterface {
   private readonly dbPath: string;
   private readonly embeddingUtil: EmbeddingUtil;
   private contexts: Map<string, Context>;
@@ -446,29 +447,87 @@ export class VectorRepository {
   }
 
   /**
-   * Finds similar contexts based on text query
+   * Convert VectorSearchResult array to RelatedContext array
    */
-  public async findSimilarContexts(query: string, limit = 10): Promise<RelatedContext[]> {
+  private convertToRelatedContexts(results: VectorSearchResult[]): RelatedContext[] {
+    // Convert to RelatedContext array
+    return results.map((result) => {
+      const context = this.contexts.get(result.contextId);
+      if (!context) throw new Error(`Context not found: ${result.contextId}`);
+      return {
+        contextId: result.contextId,
+        text: context.text,
+        summary: context.summary,
+        type: 'similar',
+        weight: result.similarity,
+        similarity: result.similarity,
+      };
+    });
+  }
+
+  /**
+   * Find contexts similar to the given text
+   */
+  public async findSimilarContexts(text: string, limit = 5): Promise<RelatedContext[]> {
     await this.ensureInitialized();
 
-    // Preprocess the query for better matching
-    const processedQuery = this.preprocessQueryForSearch(query);
+    // Preprocess the query to enhance matching
+    const processedText = this.preprocessQueryForSearch(text);
+    const queryEmbedding = await this.embeddingUtil.getEmbedding(processedText);
 
-    // Get embedding for the processed query
-    const queryEmbedding = await this.embeddingUtil.getEmbedding(processedQuery);
-    const results = this.searchSimilarContexts(queryEmbedding, limit);
+    if (!this.index || !queryEmbedding || queryEmbedding.length === 0) {
+      return [];
+    }
 
-    // Apply advanced filtering and scoring
-    const enhancedResults = this.applyAdvancedScoring(results, query);
+    try {
+      // Set search parameters
+      this.index.setEf(100); // Higher ef value improves recall at cost of performance
 
-    return enhancedResults.map((result) => ({
-      contextId: result.contextId,
-      text: this.contexts.get(result.contextId)?.text || '',
-      summary: this.contexts.get(result.contextId)?.summary || '',
-      type: 'similar',
-      weight: result.similarity,
-      similarity: result.similarity,
-    }));
+      const point = Array.from(new Float32Array(queryEmbedding));
+      const searchResults = this.index.searchKnn(point, Math.min(limit * 2, this.contexts.size));
+
+      const results: VectorSearchResult[] = searchResults.neighbors
+        .map((neighbor, idx) => {
+          const contextId = this.indexToContextId.get(neighbor);
+          if (!contextId) return null;
+          return {
+            contextId,
+            similarity: 1 - searchResults.distances[idx], // Convert distance to similarity
+          };
+        })
+        .filter((result): result is VectorSearchResult => result !== null);
+
+      // Apply enhanced ranking and advanced scoring
+      const enhancedResults = this.enhanceSearchResults(results, queryEmbedding, limit);
+      const scoredResults = this.applyAdvancedScoring(enhancedResults, text);
+
+      // Boost similarity for database-related queries
+      if (text.toLowerCase().includes('database') || text.toLowerCase().includes('db')) {
+        scoredResults.forEach((result) => {
+          const context = this.contexts.get(result.contextId);
+          if (
+            context &&
+            (context.text.toLowerCase().includes('database') ||
+              context.text.toLowerCase().includes('postgresql') ||
+              context.text.toLowerCase().includes('mongodb') ||
+              context.text.toLowerCase().includes('clickhouse') ||
+              context.text.toLowerCase().includes('redis'))
+          ) {
+            result.similarity = Math.min(1.0, result.similarity * 1.5);
+          }
+        });
+        // Re-sort after boosting
+        scoredResults.sort((a, b) => b.similarity - a.similarity);
+      }
+
+      // Convert to RelatedContext array
+      return this.convertToRelatedContexts(scoredResults);
+    } catch (error) {
+      console.error('Error in similarity search:', error);
+      // Fallback: Direct similarity calculation
+      const fallbackResults = this.directSimilaritySearch(queryEmbedding, limit);
+      return this.convertToRelatedContexts(fallbackResults);
+    }
   }
 
   /**

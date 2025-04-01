@@ -5,9 +5,9 @@ import {
   ContextSummary,
   HierarchicalSummary,
   MetaSummary,
-  SimilarContext,
   ContextRelationshipType,
 } from '../domain/types';
+import { RelatedContext } from '../types/related-context';
 
 /**
  * Edge type for graph relationships
@@ -151,9 +151,9 @@ export interface VectorRepositoryInterface {
    * Find contexts similar to the given text
    * @param text Text to find similar contexts for
    * @param limit Maximum number of results to return
-   * @returns Array of context IDs with similarity scores
+   * @returns Array of related contexts with similarity scores
    */
-  findSimilarContexts(text: string, limit?: number): Promise<SimilarContext[]>;
+  findSimilarContexts(text: string, limit?: number): Promise<RelatedContext[]>;
 
   /**
    * Delete a context from the vector index

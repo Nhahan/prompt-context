@@ -52,6 +52,8 @@ export interface Message {
   importance?: ContextImportance;
   /** Tags for message categorization */
   tags?: string[];
+  /** Context ID this message belongs to */
+  contextId: string;
 }
 
 /**
@@ -142,16 +144,6 @@ export interface VectorContext {
   embedding: number[];
   /** Last updated timestamp */
   updatedAt: number;
-}
-
-/**
- * Similar context result
- */
-export interface SimilarContext {
-  /** Context ID */
-  contextId: string;
-  /** Similarity score (0-1) */
-  similarity: number;
 }
 
 /**
