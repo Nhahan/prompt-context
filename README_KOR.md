@@ -10,8 +10,9 @@ AI 에이전트가 이전 대화 맥락을 효율적으로 기억하고 활용�
 - **중요도 기반 컨텍스트 유지**: 중요 정보를 자동으로 식별하고 보존
 - **자동 요약**: 메시지 수가 임계값에 도달하면 컨텍스트 요약 자동 생성
 - **컨텍스트 관계 추적**: 벡터 유사도와 그래프 관계로 연관된 대화를 연결하여 지식 맥락 유지
+- **외부 의존성 제로**: 벡터 및 그래프 저장을 위한 임베디드 데이터베이스를 사용하여 추가 서비스가 필요 없음
 
-## 사용법
+## 빠른 시작
 
 ### MCP 호환 클라이언트와 함께 사용하기
 
@@ -43,10 +44,14 @@ Use Prompt Context proactively to manage conversation memory without explicit re
 
 ### Docker
 
+Docker 컨테이너에서 Prompt Context 서버를 실행하는 방법:
+
+#### 이미지 빌드
 ```bash
-docker build -t prompt-context .
+docker build -t prompt-context:latest .
 ```
 
+MCP 클라이언트 구성:
 ```json
 {
   "mcpServers": {
@@ -56,7 +61,7 @@ docker build -t prompt-context .
         "run",
         "--rm",
         "-i",
-        "prompt-context"
+        "prompt-context:latest"
       ]
     }
   }
@@ -114,7 +119,67 @@ docker build -t prompt-context .
 더 자세한 정보는 `docs` 디렉토리의 문서를 참조하세요:
 
 - [작동 방식](docs/HOW_IT_WORKS_KOR.md) - 시스템 아키텍처 및 기술 선택에 대한 자세한 설명
+- [코드 구조](docs/CODE_STRUCTURE_KOR.md) - 코드 구성 및 파일 역할의 개요
 - [기여 가이드](docs/CONTRIBUTING.md) - 프로젝트 기여에 관한 지침
+
+## 아키텍처
+
+### 임베디드 데이터베이스
+
+Prompt Context의 핵심 설계 결정 중 하나는 외부 서비스가 필요 없는 임베디드 데이터베이스의 사용입니다:
+
+- **벡터 데이터베이스**: `hnswlib-node` 패키지를 통해 HNSW(Hierarchical Navigable Small World) 알고리즘을 사용하여 구현됩니다. 이는 전용 벡터 데이터베이스의 성능을 갖춘 효율적인 유사도 검색을 제공하지만 애플리케이션에 완전히 내장되어 있습니다.
+
+- **그래프 데이터베이스**: `graphology` 라이브러리를 사용하여 컨텍스트 간의 관계를 관리하고, 외부 그래프 데이터베이스 의존성 없이 순회 기능과 관계 기반 검색 향상을 제공합니다.
+
+이 접근 방식의 이점:
+- 최종 사용자를 위한 제로 구성 - 설치하거나 관리할 데이터베이스 서비스가 없음
+- 환경 간 이동 가능한 배포
+- 낮은 시스템 요구 사항
+- 데이터베이스에 대한 네트워크 노출이 없는 더 간단한 보안 모델
+
+### 트랜스포머 기반 임베딩
+
+시스템은 효율적인 텍스트 임베딩 생성을 위해 ONNX 런타임과 함께 Transformers.js를 사용합니다:
+
+- 자동 모델 다운로드 및 캐싱
+- ONNX 모델을 사용한 최적화된 추론
+- 필요할 때 더 간단한 임베딩 방법으로 원활한 대체
+- 대규모 컨텍스트를 위한 메모리 효율적 처리
+
+## 개발
+
+### 테스트 스위트
+
+프로젝트에는 기능을 보장하기 위한 포괄적인 테스트 스위트가 포함되어 있습니다:
+
+- **통합 테스트**: 복잡한 개발 컨텍스트와 React 애플리케이션 개발로 실제 시나리오 시뮬레이션
+  ```bash
+  npm run test:all
+  ```
+
+### 개발 시작하기
+
+1. 저장소 복제
+   ```bash
+   git clone https://github.com/Nhahan/prompt-context.git
+   cd prompt-context
+   ```
+
+2. 의존성 설치
+   ```bash
+   npm install
+   ```
+
+3. 프로젝트 빌드
+   ```bash
+   npm run build
+   ```
+
+4. 테스트 실행
+   ```bash
+   npm test
+   ```
 
 ## 구성
 

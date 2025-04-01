@@ -10,8 +10,9 @@ An MCP protocol that helps AI agents efficiently remember and utilize previous c
 *   **Importance-Based Context Retention**: Automatically identifies and preserves important information
 *   **Automatic Summarization**: Automatically generates context summaries when message count reaches threshold
 *   **Context Relationship Tracking**: Connects related conversations through vector similarity and graph relationships to maintain knowledge context
+*   **Zero External Dependencies**: Uses embedded databases for vector and graph storage, requiring no additional services
 
-## Usage
+## Quick Start
 
 ### Using with MCP-compatible clients
 
@@ -43,10 +44,19 @@ Use Prompt Context proactively to manage conversation memory without explicit re
 
 ### Docker
 
+To run the Prompt Context server in a Docker container:
+
+#### Build the image
 ```bash
-docker build -t prompt-context .
+docker build -t prompt-context:latest .
 ```
 
+#### Run with stdio mode (for MCP clients)
+```bash
+docker run --rm -i prompt-context:latest
+```
+
+For MCP client configuration:
 ```json
 {
   "mcpServers": {
@@ -56,7 +66,7 @@ docker build -t prompt-context .
         "run",
         "--rm",
         "-i",
-        "prompt-context"
+        "prompt-context:latest"
       ]
     }
   }
@@ -114,7 +124,42 @@ This server provides various tools for managing conversation contexts and relati
 For more detailed information, refer to the documentation in the `docs` directory:
 
 - [How It Works](docs/HOW_IT_WORKS.md) - Detailed explanation of system architecture and technical choices
+- [Code Structure](docs/CODE_STRUCTURE.md) - Overview of code organization and file responsibilities
 - [Contributing Guide](docs/CONTRIBUTING.md) - Guidelines for contributing to the project
+
+## Development
+
+### Test Suite
+
+The project includes comprehensive test suites to ensure functionality:
+
+- **Integration Tests**: Simulates real-world scenarios with complex development contexts and React application development
+  ```bash
+  npm run test:all
+  ```
+
+### Getting Started with Development
+
+1. Clone the repository
+   ```bash
+   git clone https://github.com/Nhahan/prompt-context.git
+   cd prompt-context
+   ```
+
+2. Install dependencies
+   ```bash
+   npm install
+   ```
+
+3. Build the project
+   ```bash
+   npm run build
+   ```
+
+4. Run tests
+   ```bash
+   npm test
+   ```
 
 ## Configuration
 
