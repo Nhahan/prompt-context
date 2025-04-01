@@ -24,7 +24,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 function safeExit(code: number) {
   console.log(`\n프로세스를 안전하게 종료합니다 (종료 코드: ${code})...`);
-  
+
   // 다음 이벤트 루프 틱에서 종료
   process.nextTick(() => {
     try {
@@ -35,7 +35,7 @@ function safeExit(code: number) {
     } catch (e) {
       // gc가 지원되지 않는 경우 무시
     }
-    
+
     // 짧은 지연 후 종료
     setTimeout(() => {
       process.exit(code);

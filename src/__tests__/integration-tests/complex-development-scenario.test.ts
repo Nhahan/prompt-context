@@ -49,17 +49,17 @@ async function setupTestEnvironment(): Promise<InitializedServices> {
  */
 async function cleanupTestEnvironment(): Promise<void> {
   console.log('리소스 정리 중...');
-  
+
   // Explicitly close the embedding model
   try {
     console.log('Embedding Model 정리 중...');
-    const { EmbeddingUtil } = require('../../utils/embedding');
+    const { EmbeddingUtil } = await import('../../utils/embedding');
     await EmbeddingUtil.getInstance().close();
     console.log('Embedding Model 세션 정리 완료');
   } catch (error) {
     console.error('Embedding Model 정리 중 오류 발생:', error);
   }
-  
+
   if (testServices) {
     // Clean up resources if needed
     if (testServices.vectorRepository) {
@@ -70,7 +70,7 @@ async function cleanupTestEnvironment(): Promise<void> {
         console.error('Vector Repository 정리 중 오류 발생:', error);
       }
     }
-    
+
     if (testServices.graphRepository) {
       try {
         console.log('Graph Repository 정리 중...');
@@ -98,11 +98,11 @@ async function cleanupTestEnvironment(): Promise<void> {
   delete process.env.MCP_CONTEXT_DIR;
   delete process.env.MCP_USE_VECTOR_DB;
   delete process.env.MCP_USE_GRAPH_DB;
-  
+
   console.log('테스트 환경 정리 완료');
-  
+
   // 짧은 대기 시간 추가하여 모든 비동기 작업이 완료되도록 함
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 500));
 }
 
 /**
