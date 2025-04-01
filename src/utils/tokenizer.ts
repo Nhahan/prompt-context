@@ -1,26 +1,69 @@
 /**
- * Simple utility functions for estimating token counts
+ * Tokenizer utility for estimating token counts in a way that better approximates GPT tokenization
  */
 
 /**
  * Estimate token count of a text string
- * Simple approximation based on GPT tokenization patterns
+ * Based on GPT tokenization patterns with improved heuristics
  * @param text Text to estimate token count for
  * @returns Estimated token count
  */
 export function estimateTokenCount(text: string): number {
-  // Simple approximation: average 4 chars per token for English text
-  return Math.ceil(text.length / 4);
+  if (!text) return 0;
+
+  // Common GPT tokenization patterns
+  // Spaces, common punctuation, and common words are often 1 token
+  // Words are generally split at subword level based on common patterns
+
+  // Count basic components
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const punctuationCount = (text.match(/[.,!?;:()[\]{}'""-]/g) || []).length;
+  const numberCount = (text.match(/\d+/g) || []).length;
+  const whitespaceCount = (text.match(/\s+/g) || []).length;
+
+  // Special character handling
+  const specialCharCount = (text.match(/[^a-zA-Z0-9\s.,!?;:()[\]{}'""-]/g) || []).length;
+
+  // Count tokens based on character encoding patterns
+  const charsPerToken = 3.5; // Slightly more accurate than 4 for most languages
+  const charBasedCount = Math.ceil(text.length / charsPerToken);
+
+  // Combine heuristics (weighted)
+  const tokenEstimate = Math.ceil(
+    0.5 * charBasedCount +
+      0.3 * wordCount +
+      0.1 * punctuationCount +
+      0.05 * specialCharCount +
+      0.05 * whitespaceCount +
+      0.3 * numberCount
+  );
+
+  // Apply corrections for specific patterns
+  let adjustment = 0;
+
+  // URLs and code tend to use more tokens
+  if (text.includes('http') || text.includes('www.')) {
+    adjustment += text.length / 10;
+  }
+
+  // JSON, code blocks use more tokens
+  if ((text.includes('{') && text.includes('}')) || (text.includes('[') && text.includes(']'))) {
+    adjustment += text.length / 15;
+  }
+
+  // Long repeating patterns may tokenize more efficiently
+  const repeatingPatterns = (text.match(/(.{3,})\1{2,}/g) || []).join('').length;
+  adjustment -= repeatingPatterns / 20;
+
+  return Math.max(1, Math.ceil(tokenEstimate + adjustment));
 }
 
 /**
- * Simple utility to estimate token count of text
- * Uses an approximate ratio of 4 characters per token for English text
+ * Calculate tokens for a given text
+ * Alias for estimateTokenCount for backward compatibility
  */
 export function calculateTokens(text: string): number {
-  // Simple approximation: ~4 characters per token for English
-  // For a more accurate count, libraries like GPT-3-Encoder should be used
-  return Math.ceil(text.length / 4);
+  return estimateTokenCount(text);
 }
 
 /**
@@ -30,15 +73,33 @@ export function calculateTokens(text: string): number {
  * @returns Truncated text
  */
 export function truncateToTokenLimit(text: string, maxTokens: number): string {
-  const currentTokens = calculateTokens(text);
+  if (!text) return '';
 
+  const currentTokens = calculateTokens(text);
   if (currentTokens <= maxTokens) {
     return text;
   }
 
-  // Simple truncation: estimate character count and add ellipsis
-  const approxCharLimit = maxTokens * 4;
-  return text.substring(0, approxCharLimit - 3) + '...';
+  // Binary search for the right cutoff point
+  let low = 0;
+  let high = text.length;
+  let mid;
+  let bestCutoff = 0;
+
+  while (low <= high) {
+    mid = Math.floor((low + high) / 2);
+    const truncated = text.substring(0, mid) + '...';
+    const tokens = calculateTokens(truncated);
+
+    if (tokens <= maxTokens) {
+      bestCutoff = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return text.substring(0, bestCutoff) + '...';
 }
 
 /**
@@ -48,6 +109,18 @@ export function truncateToTokenLimit(text: string, maxTokens: number): string {
  * @returns Whether the token limit is exceeded
  */
 export function exceedsTokenLimit(messages: string[], maxTokens: number): boolean {
-  const totalTokens = calculateTokens(messages.join(' '));
+  if (!messages || messages.length === 0) return false;
+
+  // More accurate than just joining with spaces - include message format overhead
+  let totalTokens = 0;
+
+  for (const message of messages) {
+    // Each message has a small overhead beyond just the text content
+    totalTokens += calculateTokens(message) + 4; // +4 tokens for message formatting
+  }
+
+  // Add system overhead for the conversation format
+  totalTokens += 3;
+
   return totalTokens > maxTokens;
 }
