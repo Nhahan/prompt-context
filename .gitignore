@@ -38,6 +38,3 @@ temp/
 
 # MCP Reference Implementation (Do not commit)
 mcp-reference/
-
-# Untracked test
-untracked-test/

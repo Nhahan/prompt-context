@@ -1,21 +1,37 @@
-FROM node:18-alpine
+FROM node:22-slim
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Install dependencies needed for building native modules
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Copy package files and install dependencies
+COPY package*.json ./
 RUN npm install
 
 # Copy source code
 COPY . .
 
-# Build TypeScript
+# Rebuild native modules for current architecture
+RUN npm rebuild hnswlib-node
+
+# Build the app
 RUN npm run build
 
-# Make executable
-RUN chmod +x dist/mcp-server.js
+# Set executable permission
+RUN chmod +x dist/mcp-server.bundle.js
 
-# Command to run MCP server
-ENTRYPOINT ["node", "dist/mcp-server.js"] 
+# Set environment variables for HTTP server mode
+ENV MCP_SERVER_TYPE=http
+ENV MCP_SERVER_PORT=6789
+
+# Expose MCP server port
+EXPOSE 6789
+
+# Command to run the app
+CMD [ "node", "dist/mcp-server.bundle.js" ] 
