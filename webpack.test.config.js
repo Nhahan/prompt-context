@@ -9,7 +9,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'mcp-server.test.bundle.js',
-    clean: false
+    clean: false,
   },
   resolve: {
     extensions: ['.js', '.ts'],
@@ -24,28 +24,25 @@ module.exports = {
       {
         test: /\.node$/,
         use: 'node-loader',
-        type: 'javascript/auto'
-      }
+        type: 'javascript/auto',
+      },
     ],
   },
   performance: {
     hints: false,
     maxEntrypointSize: 512000,
-    maxAssetSize: 512000
+    maxAssetSize: 512000,
   },
-  externals: [
-    nodeExternals(),
-    /\.node$/
-  ],
+  externals: [nodeExternals(), /\.node$/],
   devtool: false,
   node: {
     __dirname: false,
     __filename: false,
   },
   plugins: [
-    new webpack.BannerPlugin({ 
-      banner: '#!/usr/bin/env node', 
-      raw: true 
+    new webpack.BannerPlugin({
+      banner: '#!/usr/bin/env node',
+      raw: true,
     }),
   ],
-}; 
+};

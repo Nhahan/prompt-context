@@ -9,7 +9,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'mcp-server.bundle.js',
-    clean: false
+    clean: false,
   },
   resolve: {
     extensions: ['.ts', '.js'],
@@ -26,15 +26,15 @@ module.exports = {
         test: /\.node$/,
         use: 'node-loader',
         // Process binary files as external instead of including in bundle
-        type: 'javascript/auto'
-      }
+        type: 'javascript/auto',
+      },
     ],
   },
   // Increase bundle size limits
   performance: {
     hints: false,
     maxEntrypointSize: 512000,
-    maxAssetSize: 512000
+    maxAssetSize: 512000,
   },
   // Bundle internal dependencies and exclude external ones
   externals: [
@@ -43,7 +43,7 @@ module.exports = {
       // No allowlist used
     }),
     // Explicitly externalize modules with .node extension
-    /\.node$/
+    /\.node$/,
   ],
   // No source maps generation
   devtool: false,
@@ -54,9 +54,9 @@ module.exports = {
   },
   plugins: [
     // Add executable file header
-    new webpack.BannerPlugin({ 
-      banner: '#!/usr/bin/env node', 
-      raw: true 
+    new webpack.BannerPlugin({
+      banner: '#!/usr/bin/env node',
+      raw: true,
     }),
   ],
-}; 
+};
