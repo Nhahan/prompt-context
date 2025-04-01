@@ -6,10 +6,7 @@ export { VectorRepository } from './repositories/vector.repository';
 export { GraphRepository } from './repositories/graph.repository';
 
 // Services
-export {
-  BaseSummarizer,
-  Summarizer,
-} from './services/summarizer.service';
+export { BaseSummarizer, Summarizer } from './services/summarizer.service';
 
 // Utils
 export { ApiAnalytics } from './utils/analytics';

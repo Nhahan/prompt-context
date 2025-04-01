@@ -1,7 +1,7 @@
 import { VectorRepository } from '../../repositories/vector.repository';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { setupTestEnvironment, cleanupTestEnvironment } from '../setup';
+import { setupTestEnvironment, cleanupTestEnvironment } from './setup';
 
 /**
  * React AI Development Scenario Integration Test

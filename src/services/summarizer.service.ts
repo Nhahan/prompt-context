@@ -15,6 +15,7 @@ import {
   VectorRepositoryInterface,
   GraphRepositoryInterface,
 } from '../repositories/repository.interface';
+import { EmbeddingUtil } from '../utils/embedding';
 
 /**
  * Base summarizer service implementation
@@ -409,13 +410,16 @@ export abstract class BaseSummarizer implements SummarizerService {
 export class Summarizer extends BaseSummarizer {
   private vectorRepository: VectorRepositoryInterface | null;
   private graphRepository: GraphRepositoryInterface | null;
+  private embeddingUtil: EmbeddingUtil;
+  private modelInitialized = false;
+  private modelInitPromise: Promise<void> | null = null;
 
   /**
    * Constructor
-   * @param tokenPercentage Percentage of token limit to utilize (default: 80%)
-   * @param analytics Optional analytics service
-   * @param vectorRepository Optional vector repository for similarity search
-   * @param graphRepository Optional graph repository for relationship tracking
+   * @param tokenPercentage Token percentage limit
+   * @param analytics Analytics service
+   * @param vectorRepository Vector repository for similarity search
+   * @param graphRepository Graph repository for context relationships
    */
   constructor(
     tokenPercentage: number = 80,
@@ -426,82 +430,217 @@ export class Summarizer extends BaseSummarizer {
     super(tokenPercentage, analytics);
     this.vectorRepository = vectorRepository;
     this.graphRepository = graphRepository;
+    this.embeddingUtil = EmbeddingUtil.getInstance();
+    this.modelInitialized = false;
+    this.modelInitPromise = null;
   }
 
   /**
-   * Generate summary text (simple implementation)
-   * @param messages Array of messages to summarize
+   * Initialize the transformer model
+   * @returns Promise that resolves when the model is loaded
+   */
+  private async initializeModel(): Promise<void> {
+    if (this.modelInitialized) return;
+    if (this.modelInitPromise) return this.modelInitPromise;
+
+    this.modelInitPromise = (async () => {
+      try {
+        console.error('[Summarizer] Initializing transformer model...');
+        await this.embeddingUtil.ensureInitialized();
+        this.modelInitialized = true;
+        console.error('[Summarizer] Model initialized successfully');
+      } catch (error) {
+        console.error('[Summarizer] Failed to initialize model:', error);
+        console.error('[Summarizer] Will use basic text summarization instead');
+      }
+    })();
+
+    return this.modelInitPromise;
+  }
+
+  /**
+   * Prepare text for summarization by formatting messages
+   * @param messages Messages to summarize
+   * @returns Formatted text
+   */
+  private prepareTextForSummarization(messages: Message[]): string {
+    let result = '';
+
+    // Format as a conversation
+    for (const message of messages) {
+      const role = message.role === 'user' ? 'User' : 'Assistant';
+      result += `${role}: ${message.content}\n\n`;
+    }
+
+    return result;
+  }
+
+  /**
+   * Simple extractive summarization without a model
+   * @param text Text to summarize
+   * @param maxLength Maximum sentence count
+   * @returns Extractive summary
+   */
+  private extractiveSummarize(text: string, maxLength = 5): string {
+    // Split text into sentences
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+
+    if (sentences.length <= maxLength) {
+      return text; // If text is already short, return as is
+    }
+
+    // Score sentences based on position and content
+    const scoredSentences = sentences.map((sentence, index) => {
+      const position = 1 - index / sentences.length; // Earlier sentences get higher scores
+      const wordCount = sentence.trim().split(/\s+/).length;
+      const length = wordCount > 5 && wordCount < 30 ? 1 : 0.5; // Prefer medium-length sentences
+
+      // Keywords check - look for indicators of important content
+      const hasKeywords = /important|key|significant|main|critical|crucial/i.test(sentence)
+        ? 1.5
+        : 1;
+
+      // Score based on content density (approximation)
+      const contentScore = sentence.replace(/\s+/g, '').length / wordCount;
+
+      // Final score
+      const score = position * length * hasKeywords * contentScore;
+
+      return { sentence: sentence.trim(), score };
+    });
+
+    // Sort by score and take the top sentences
+    const topSentences = scoredSentences
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxLength)
+      .sort((a, b) => {
+        // Find the original positions of the sentences to preserve order
+        const posA = sentences.findIndex((s) => s.trim() === a.sentence);
+        const posB = sentences.findIndex((s) => s.trim() === b.sentence);
+        return posA - posB;
+      });
+
+    return topSentences.map((item) => item.sentence).join(' ');
+  }
+
+  /**
+   * Generate a summary of messages
+   * @param messages Messages to summarize
    * @param contextId Context ID
-   * @returns Summary text and tokens used
+   * @returns Generated summary and token count
    */
   protected async generateSummary(
     messages: Message[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _contextId: string
+    contextId: string
   ): Promise<{ summary: string; tokensUsed?: number }> {
-    // Simple implementation that creates a summary from latest messages
-    const latestMessages = messages.slice(Math.max(0, messages.length - 5));
+    // Initialize model if needed
+    await this.initializeModel();
 
-    // Create a compact summary
-    const userMessages = latestMessages
-      .filter((m) => m.role === 'user')
-      .map((m) => m.content.substring(0, 100))
-      .join('; ');
+    try {
+      if (this.vectorRepository) {
+        this.vectorRepository.ensureInitialized();
+      }
 
-    const assistantMessages = latestMessages
-      .filter((m) => m.role === 'assistant')
-      .map((m) => m.content.substring(0, 100))
-      .join('; ');
+      const text = this.prepareTextForSummarization(messages);
+      // 변수 선언만 해두고 사용하지 않음
+      // const tokens = calculateTokens(text);
 
-    const summary = `This conversation contains ${messages.length} messages. Recent user queries: ${userMessages}. Recent assistant responses: ${assistantMessages}`;
+      if (messages.length === 0) {
+        return { summary: 'No messages to summarize.', tokensUsed: 0 };
+      }
 
-    // Estimate tokens used
-    const tokensUsed = calculateTokens(summary);
+      // If messages are too few, just concatenate them
+      if (messages.length <= 3) {
+        const simpleSummary = `This conversation contains ${messages.length} message(s). ${
+          messages[0].role === 'user' ? 'The user asked: ' : 'The assistant said: '
+        }${messages[0].content.slice(0, 200)}${messages[0].content.length > 200 ? '...' : ''}`;
+        return { summary: simpleSummary, tokensUsed: calculateTokens(simpleSummary) };
+      }
 
-    return {
-      summary: summary.substring(0, 1000), // Limit length
-      tokensUsed,
-    };
+      // Generate a summary using extractive summarization
+      const summary = this.extractiveSummarize(text, 7);
+
+      // Add metadata
+      const result = `Conversation with ${messages.length} messages. Summary: ${summary}`;
+
+      return { summary: result, tokensUsed: calculateTokens(result) };
+    } catch (error) {
+      console.error(`[Summarizer] Error generating summary for context ${contextId}:`, error);
+      return {
+        summary: `Conversation with ${messages.length} messages (summary generation failed).`,
+        tokensUsed: 0,
+      };
+    }
   }
 
   /**
-   * Generate hierarchical summary text
-   * @param summaries Array of context summaries
+   * Generate a hierarchical summary from multiple summaries
+   * @param summaries Summaries to combine
    * @param parentId Parent context ID
-   * @returns Hierarchical summary text
+   * @returns Generated hierarchical summary
    */
   protected async generateHierarchicalSummary(
     summaries: ContextSummary[],
     parentId: string
   ): Promise<string> {
-    // Simple implementation that combines child summaries
-    const combinedSummaries = summaries.map((s) => s.summary.substring(0, 200)).join('\n\n');
+    if (summaries.length === 0) {
+      return 'No contexts to summarize.';
+    }
 
-    return `Hierarchical summary for ${parentId} with ${summaries.length} child contexts:\n\n${combinedSummaries}`.substring(
-      0,
-      1500
-    );
+    try {
+      // Collect all summaries
+      const allSummaries = summaries.map((s) => s.summary).join('\n\n');
+
+      // Generate an extractive summary of all the summaries
+      const combinedSummary = this.extractiveSummarize(allSummaries, 10);
+
+      // Add metadata about the combined contexts
+      const totalMessages = summaries.reduce((sum, s) => sum + s.messageCount, 0);
+      const result = `Hierarchical summary of ${summaries.length} contexts containing a total of ${totalMessages} messages. ${combinedSummary}`;
+
+      return result;
+    } catch (error) {
+      console.error(`[Summarizer] Error generating hierarchical summary for ${parentId}:`, error);
+      return `Hierarchical summary of ${summaries.length} contexts (summary generation failed).`;
+    }
   }
 
   /**
-   * Generate meta-summary text
-   * @param hierarchicalSummaries Array of hierarchical summaries
+   * Generate a meta-summary from hierarchical summaries
+   * @param hierarchicalSummaries Hierarchical summaries to combine
    * @param metaSummaryId Meta-summary ID
-   * @returns Meta-summary text
+   * @returns Generated meta-summary
    */
   protected async generateMetaSummary(
     hierarchicalSummaries: HierarchicalSummary[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     metaSummaryId: string
   ): Promise<string> {
-    // Simple implementation that combines hierarchical summaries
-    const combinedSummaries = hierarchicalSummaries
-      .map((s) => `${s.contextId}: ${s.summary.substring(0, 150)}`)
-      .join('\n\n');
+    if (hierarchicalSummaries.length === 0) {
+      return 'No hierarchical contexts to summarize.';
+    }
 
-    return `Meta-summary ${metaSummaryId} containing ${hierarchicalSummaries.length} hierarchical summaries:\n\n${combinedSummaries}`.substring(
-      0,
-      2000
-    );
+    try {
+      // Collect all summaries
+      const allSummaries = hierarchicalSummaries.map((s) => s.summary).join('\n\n');
+
+      // Generate an extractive summary of all the hierarchical summaries
+      const combinedSummary = this.extractiveSummarize(allSummaries, 12);
+
+      // Get total message count
+      let totalMessages = 0;
+      let totalContexts = 0;
+
+      for (const hs of hierarchicalSummaries) {
+        totalMessages += hs.messageCount;
+        totalContexts += (hs.childContextIds?.length || 0) + 1; // +1 for the hierarchical summary itself
+      }
+
+      const result = `Meta-summary of ${hierarchicalSummaries.length} hierarchical contexts containing a total of ${totalContexts} contexts and ${totalMessages} messages. ${combinedSummary}`;
+
+      return result;
+    } catch (error) {
+      console.error(`[Summarizer] Error generating meta-summary for ${metaSummaryId}:`, error);
+      return `Meta-summary of ${hierarchicalSummaries.length} hierarchical contexts (summary generation failed).`;
+    }
   }
 }

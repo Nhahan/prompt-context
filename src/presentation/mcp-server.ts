@@ -2,6 +2,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import http from 'http';
 import path from 'path';
 import fs from 'fs-extra';
 import { z, ZodError } from 'zod';
@@ -18,6 +19,7 @@ export class PromptContextMcpServer {
   private contextService: ContextServiceInterface;
   private config: MCPConfig;
   private packageVersion: string;
+  private httpServer: http.Server | null = null;
 
   /**
    * Create a new MCP Server instance
@@ -350,19 +352,190 @@ export class PromptContextMcpServer {
   }
 
   /**
-   * Start the MCP server with stdio transport
+   * Start the HTTP server
+   */
+  private async startHttpServer(): Promise<void> {
+    const port = this.config.port || 6789;
+
+    this.httpServer = http.createServer(async (req, res) => {
+      // Set CORS headers
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      // Handle preflight request
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      // Only support POST requests to /mcp/function
+      if (req.method !== 'POST' || req.url !== '/mcp/function') {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'Not Found' } }));
+        return;
+      }
+
+      try {
+        // Read request body
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          req.on('end', () => resolve());
+          req.on('error', (err) => reject(err));
+        });
+
+        // Parse request body
+        let requestData;
+        try {
+          requestData = JSON.parse(body);
+        } catch (error) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: { message: 'Invalid JSON request body' },
+            })
+          );
+          return;
+        }
+
+        // Validate function call
+        if (!requestData.function_call || !requestData.function_call.name) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: { message: 'Missing function_call.name in request' },
+            })
+          );
+          return;
+        }
+
+        // Handle the function call
+        const functionName = requestData.function_call.name.replace(
+          /^mcp_Prompt_Context_Test_/,
+          ''
+        );
+        const args = requestData.function_call.arguments || {};
+
+        console.error(`[MCP Server] HTTP Tool call received: ${functionName}`, args);
+
+        // Process the function call
+        let result;
+        switch (functionName) {
+          case 'ping':
+            result = { content: [{ type: 'text', text: 'pong' }] };
+            break;
+          case 'add_message':
+            result = await toolHandlers.add_message(args, this.contextService);
+            break;
+          case 'retrieve_context':
+            result = await toolHandlers.retrieve_context(args, this.contextService);
+            break;
+          case 'get_similar_contexts':
+            result = await toolHandlers.get_similar_contexts(args, this.contextService);
+            break;
+          case 'add_relationship':
+            result = await toolHandlers.add_relationship(args, this.contextService);
+            break;
+          case 'get_related_contexts':
+            result = await toolHandlers.get_related_contexts(args, this.contextService);
+            break;
+          case 'summarize_context':
+            result = await toolHandlers.summarize_context(args, this.contextService);
+            break;
+          case 'visualize_context':
+            result = await toolHandlers.visualize_context(args, this.contextService);
+            break;
+          case 'get_context_metrics':
+            result = await toolHandlers.get_context_metrics(args, this.contextService);
+            break;
+          default:
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: { message: `Unknown function: ${functionName}` },
+              })
+            );
+            return;
+        }
+
+        // Send the response
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+
+        if (typeof result === 'string') {
+          // If result is already a string, wrap it
+          res.end(
+            JSON.stringify({
+              content: [{ type: 'text', text: result }],
+            })
+          );
+        } else if (result && 'content' in result) {
+          // If result already has content format, use it directly
+          res.end(JSON.stringify(result));
+        } else {
+          // Otherwise, serialize the result object
+          res.end(
+            JSON.stringify({
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+            })
+          );
+        }
+      } catch (error) {
+        console.error('[MCP Server] Error handling HTTP request:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: `Server error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          })
+        );
+      }
+    });
+
+    // Start the HTTP server
+    return new Promise((resolve, reject) => {
+      this.httpServer
+        ?.listen(port, () => {
+          console.error(`[MCP Server] HTTP server listening on port ${port}`);
+          resolve();
+        })
+        .on('error', (error) => {
+          console.error(`[MCP Server] Error starting HTTP server:`, error);
+          reject(error);
+        });
+    });
+  }
+
+  /**
+   * Start the MCP server
    */
   async start(): Promise<void> {
     this.registerTools();
 
-    const transport = new StdioServerTransport();
-    console.error('[MCP Server] Connecting to stdio transport...');
+    // Determine server type from environment variable
+    const serverType = process.env.MCP_SERVER_TYPE || 'stdio';
 
-    try {
-      await this.server.connect(transport);
-    } catch (error) {
-      console.error('[MCP Server] Server connection error:', error);
-      throw error;
+    if (serverType === 'http') {
+      console.error('[MCP Server] Starting in HTTP mode...');
+      await this.startHttpServer();
+    } else {
+      // Default to stdio transport
+      const transport = new StdioServerTransport();
+      console.error('[MCP Server] Connecting to stdio transport...');
+
+      try {
+        await this.server.connect(transport);
+      } catch (error) {
+        console.error('[MCP Server] Server connection error:', error);
+        throw error;
+      }
     }
+
+    console.error('[MCP Server] MCP Server started successfully.');
   }
 }
