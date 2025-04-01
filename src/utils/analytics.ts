@@ -8,7 +8,7 @@ import { ApiCallType } from '../domain/types';
 interface ApiCallLogEntry {
   type: ApiCallType;
   timestamp: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   duration: number;
 }
 
