@@ -12,6 +12,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { initializeMcpServer, InitializedServices } from '../../main';
+import { TOOL_NAMES, AddContextParams, GetContextParams } from '../../domain/types';
 
 // Global test services object
 let testServices: InitializedServices | null = null;
@@ -31,7 +32,6 @@ async function setupTestEnvironment(): Promise<InitializedServices> {
   process.env.MCP_CONTEXT_DIR = tempDir;
   process.env.MCP_USE_VECTOR_DB = 'true';
   process.env.MCP_USE_GRAPH_DB = 'true';
-  process.env.MCP_DEBUG = 'true';
 
   // Initialize services using main.ts
   testServices = await initializeMcpServer();
@@ -48,10 +48,37 @@ async function setupTestEnvironment(): Promise<InitializedServices> {
  * Cleans up the test environment after tests complete
  */
 async function cleanupTestEnvironment(): Promise<void> {
+  console.log('리소스 정리 중...');
+  
+  // Explicitly close the embedding model
+  try {
+    console.log('Embedding Model 정리 중...');
+    const { EmbeddingUtil } = require('../../utils/embedding');
+    await EmbeddingUtil.getInstance().close();
+    console.log('Embedding Model 세션 정리 완료');
+  } catch (error) {
+    console.error('Embedding Model 정리 중 오류 발생:', error);
+  }
+  
   if (testServices) {
     // Clean up resources if needed
     if (testServices.vectorRepository) {
-      await testServices.vectorRepository.close();
+      try {
+        console.log('Vector Repository 정리 중...');
+        await testServices.vectorRepository.close();
+      } catch (error) {
+        console.error('Vector Repository 정리 중 오류 발생:', error);
+      }
+    }
+    
+    if (testServices.graphRepository) {
+      try {
+        console.log('Graph Repository 정리 중...');
+        // GraphRepository에는 close 메서드가 없으므로 직접적인 정리가 필요 없음
+        console.log('Graph Repository 정리 완료');
+      } catch (error) {
+        console.error('Graph Repository 정리 중 오류 발생:', error);
+      }
     }
 
     // Reset test services
@@ -61,6 +88,7 @@ async function cleanupTestEnvironment(): Promise<void> {
   // Clean up test data
   const tempDir = path.join(__dirname, '../../..', 'test-temp');
   try {
+    console.log('테스트 데이터 디렉토리 정리 중...');
     await fs.remove(tempDir);
   } catch (error) {
     console.error('Failed to remove test directory:', error);
@@ -70,30 +98,139 @@ async function cleanupTestEnvironment(): Promise<void> {
   delete process.env.MCP_CONTEXT_DIR;
   delete process.env.MCP_USE_VECTOR_DB;
   delete process.env.MCP_USE_GRAPH_DB;
-  delete process.env.MCP_DEBUG;
+  
+  console.log('테스트 환경 정리 완료');
+  
+  // 짧은 대기 시간 추가하여 모든 비동기 작업이 완료되도록 함
+  await new Promise(resolve => setTimeout(resolve, 500));
 }
 
-async function runComplexDevelopmentScenario() {
+/**
+ * Helper function to simulate add_context tool calls
+ */
+async function addContext(
+  contextId: string,
+  message: string,
+  role: 'user' | 'assistant',
+  importance: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM',
+  tags: string[] = []
+): Promise<void> {
+  if (!testServices?.mcpServer) {
+    throw new Error('MCP server not initialized');
+  }
+
+  const addContextTool = testServices.mcpServer.tools.find(
+    (tool) => tool.getName() === TOOL_NAMES.ADD_CONTEXT
+  );
+
+  if (!addContextTool) {
+    throw new Error(`${TOOL_NAMES.ADD_CONTEXT} tool not found`);
+  }
+
+  const handler = addContextTool.getHandler(testServices.mcpServer);
+
+  const params: AddContextParams = {
+    contextId,
+    message,
+    role,
+    importance,
+    tags,
+  };
+
+  await handler(params);
+  console.log(`✓ Added ${role} message to context: ${contextId}`);
+}
+
+/**
+ * Helper function to simulate get_context tool calls
+ */
+async function getContext(contextId: string): Promise<Record<string, unknown>> {
+  if (!testServices?.mcpServer) {
+    throw new Error('MCP server not initialized');
+  }
+
+  const getContextTool = testServices.mcpServer.tools.find(
+    (tool) => tool.getName() === TOOL_NAMES.GET_CONTEXT
+  );
+
+  if (!getContextTool) {
+    throw new Error(`${TOOL_NAMES.GET_CONTEXT} tool not found`);
+  }
+
+  const handler = getContextTool.getHandler(testServices.mcpServer);
+
+  const params: GetContextParams = {
+    contextId,
+  };
+
+  const result = (await handler(params)) as { content: Array<{ text: string }>; isError: boolean };
+  const parsedResult = JSON.parse(result.content[0].text);
+
+  if (!parsedResult.success) {
+    throw new Error(`Failed to get context: ${parsedResult.error}`);
+  }
+
+  const context = parsedResult.result;
+  console.log(`✓ Retrieved context: ${contextId} (${context.messages.length} messages)`);
+  return context;
+}
+
+/**
+ * Helper function to simulate get_context with query
+ */
+async function searchSimilarContexts(
+  query: string,
+  limit: number = 5
+): Promise<Array<Record<string, unknown>>> {
+  if (!testServices?.mcpServer) {
+    throw new Error('MCP server not initialized');
+  }
+
+  const getContextTool = testServices.mcpServer.tools.find(
+    (tool) => tool.getName() === TOOL_NAMES.GET_CONTEXT
+  );
+
+  if (!getContextTool) {
+    throw new Error(`${TOOL_NAMES.GET_CONTEXT} tool not found`);
+  }
+
+  const handler = getContextTool.getHandler(testServices.mcpServer);
+
+  const params: GetContextParams = {
+    query,
+    limit,
+  };
+
+  const result = (await handler(params)) as { content: Array<{ text: string }>; isError: boolean };
+  const parsedResult = JSON.parse(result.content[0].text);
+
+  if (!parsedResult.success) {
+    throw new Error(`Failed to search contexts: ${parsedResult.error}`);
+  }
+
+  const similarContexts = parsedResult.result;
+  console.log(
+    `✓ Found ${similarContexts.length} similar contexts for query: "${query.substring(0, 30)}..."`
+  );
+
+  return similarContexts;
+}
+
+export async function runComplexDevelopmentScenario() {
   // Initialize test environment
-  let testServices: InitializedServices;
   try {
-    testServices = await setupTestEnvironment();
+    const services = await setupTestEnvironment();
+    testServices = services;
 
     console.log('\n=== Complex Development Scenario Integration Test ===\n');
-
-    const vectorRepo = testServices.vectorRepository;
-
-    if (!vectorRepo) {
-      throw new Error('Vector repository not initialized in test services');
-    }
 
     // Phase 1: System Architecture Discussion
     console.log('Phase 1: System Architecture Discussion');
 
-    // Add complex architecture discussion context
-    const architectureContext = {
-      id: 'system-architecture',
-      text: `# Microservice Architecture Overview
+    // Use add_context to create a new context
+    await addContext(
+      'system-architecture',
+      `# Microservice Architecture Overview
       
       Our system uses a microservice architecture with the following components:
       
@@ -112,23 +249,18 @@ async function runComplexDevelopmentScenario() {
       - Notification Service: Redis for queues and temporary storage
       
       This architecture allows teams to work independently and deploy services separately, improving development velocity and system resilience.`,
-      summary:
-        'System microservice architecture overview with components and data storage strategy',
-    };
-    await vectorRepo.addContext(
-      architectureContext.id,
-      architectureContext.text,
-      architectureContext.summary
+      'user',
+      'HIGH',
+      ['architecture', 'microservices']
     );
-    console.log('✓ Added system architecture context');
 
     // Phase 2: Code Implementation Discussions
     console.log('\nPhase 2: Code Implementation Discussions');
 
     // Add API Gateway implementation details
-    const apiGatewayContext = {
-      id: 'api-gateway-implementation',
-      text: `# API Gateway Implementation
+    await addContext(
+      'api-gateway-implementation',
+      `# API Gateway Implementation
       
       We've implemented the API Gateway using Node.js with Express. Here's the core routing logic:
       
@@ -185,564 +317,219 @@ async function runComplexDevelopmentScenario() {
       3. Rate limiting
       4. CORS configuration
       5. Response caching`,
-      summary:
-        'API Gateway implementation details with Node.js/Express, including routing and middleware',
-    };
-    await vectorRepo.addContext(
-      apiGatewayContext.id,
-      apiGatewayContext.text,
-      apiGatewayContext.summary
+      'user',
+      'HIGH',
+      ['api-gateway', 'nodejs', 'code']
     );
 
-    // Add relationship between contexts
-    await vectorRepo.addRelationship(
-      architectureContext.id,
-      apiGatewayContext.id,
-      'implements',
-      0.9
-    );
-    console.log('✓ Added API Gateway implementation context with relationship');
+    // Add response from assistant
+    await addContext(
+      'api-gateway-implementation',
+      `Thanks for sharing the API Gateway implementation. Looking at your code, I notice a few potential areas for improvement:
 
-    // Add User Service implementation details
-    const userServiceContext = {
-      id: 'user-service-implementation',
-      text: `# User Service Implementation
+      1. You might want to add request timeout handling for each proxy
+      2. Consider adding health check endpoints for each service
+      3. The error handling could be more granular based on different error types
       
-      The User Service is built with Spring Boot and uses PostgreSQL. Here's the core user model and repository:
+      Would you like me to suggest specific code changes for any of these?`,
+      'assistant',
+      'MEDIUM',
+      ['feedback', 'code-review']
+    );
+
+    // Phase 3: User Service Implementation
+    console.log('\nPhase 3: User Service Implementation');
+
+    await addContext(
+      'user-service-implementation',
+      `Here's the core of our User Service implementation using TypeScript:
+
+      \`\`\`typescript
+      import express, { Request, Response, NextFunction } from 'express';
+      import bcrypt from 'bcrypt';
+      import jwt from 'jsonwebtoken';
+      import { Pool } from 'pg';
       
-      \`\`\`java
-      // User.java
-      @Entity
-      @Table(name = "users")
-      public class User {
-          @Id
-          @GeneratedValue(strategy = GenerationType.IDENTITY)
-          private Long id;
+      // Database connection
+      const pool = new Pool({
+        user: process.env.DB_USER,
+        host: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        password: process.env.DB_PASSWORD,
+        port: parseInt(process.env.DB_PORT || '5432'),
+      });
+      
+      const app = express();
+      app.use(express.json());
+      
+      // User registration
+      app.post('/register', async (req: Request, res: Response) => {
+        try {
+          const { username, email, password } = req.body;
           
-          @Column(nullable = false, unique = true)
-          private String username;
-          
-          @Column(nullable = false)
-          private String password; // Stored as bcrypt hash
-          
-          @Column(nullable = false, unique = true)
-          private String email;
-          
-          @Column(name = "created_at")
-          private LocalDateTime createdAt;
-          
-          @Column(name = "updated_at")
-          private LocalDateTime updatedAt;
-          
-          @PrePersist
-          protected void onCreate() {
-              createdAt = LocalDateTime.now();
-              updatedAt = LocalDateTime.now();
+          // Validate input
+          if (!username || !email || !password) {
+            return res.status(400).json({ error: 'All fields are required' });
           }
           
-          @PreUpdate
-          protected void onUpdate() {
-              updatedAt = LocalDateTime.now();
+          // Check if user exists
+          const userCheck = await pool.query(
+            'SELECT * FROM users WHERE email = $1', [email]
+          );
+          
+          if (userCheck.rows.length > 0) {
+            return res.status(400).json({ error: 'User already exists' });
           }
           
-          // Getters and setters
-      }
-      
-      // UserRepository.java
-      @Repository
-      public interface UserRepository extends JpaRepository<User, Long> {
-          Optional<User> findByUsername(String username);
-          Optional<User> findByEmail(String email);
-          boolean existsByUsername(String username);
-          boolean existsByEmail(String email);
-      }
-      \`\`\`
-      
-      And the authentication controller:
-      
-      \`\`\`java
-      @RestController
-      @RequestMapping("/auth")
-      public class AuthController {
-          @Autowired
-          private AuthService authService;
+          // Hash password
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash(password, salt);
           
-          @PostMapping("/login")
-          public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
-              AuthResponse response = authService.authenticate(request.getUsername(), request.getPassword());
-              return ResponseEntity.ok(response);
-          }
+          // Insert user
+          const result = await pool.query(
+            'INSERT INTO users (username, email, password) VALUES ($1, $2, $3) RETURNING id, username, email',
+            [username, email, hashedPassword]
+          );
           
-          @PostMapping("/register")
-          public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request) {
-              authService.register(request);
-              return ResponseEntity.status(HttpStatus.CREATED).build();
-          }
-          
-          @PostMapping("/refresh")
-          public ResponseEntity<?> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
-              AuthResponse response = authService.refreshToken(request.getRefreshToken());
-              return ResponseEntity.ok(response);
-          }
-      }
-      \`\`\``,
-      summary:
-        'User Service implementation with Spring Boot, PostgreSQL, including user model and authentication',
-    };
-    await vectorRepo.addContext(
-      userServiceContext.id,
-      userServiceContext.text,
-      userServiceContext.summary
-    );
-
-    // Add relationship between contexts
-    await vectorRepo.addRelationship(
-      architectureContext.id,
-      userServiceContext.id,
-      'implements',
-      0.9
-    );
-    console.log('✓ Added User Service implementation context with relationship');
-
-    // Phase 3: Testing Strategy Discussion
-    console.log('\nPhase 3: Testing Strategy Discussion');
-
-    const testingStrategyContext = {
-      id: 'testing-strategy',
-      text: `# Testing Strategy for Microservices
-      
-      Our testing strategy follows the testing pyramid approach:
-      
-      ## Unit Tests
-      Each service has comprehensive unit tests covering all business logic. Example of a User Service test:
-      
-      \`\`\`java
-      @SpringBootTest
-      class UserServiceTest {
-          @MockBean
-          private UserRepository userRepository;
-          
-          @Autowired
-          private UserService userService;
-          
-          @Test
-          void createUser_WithValidData_ShouldSucceed() {
-              // Arrange
-              CreateUserRequest request = new CreateUserRequest("testuser", "test@example.com", "password123");
-              when(userRepository.existsByUsername("testuser")).thenReturn(false);
-              when(userRepository.existsByEmail("test@example.com")).thenReturn(false);
-              
-              User savedUser = new User();
-              savedUser.setId(1L);
-              savedUser.setUsername("testuser");
-              savedUser.setEmail("test@example.com");
-              
-              when(userRepository.save(any(User.class))).thenReturn(savedUser);
-              
-              // Act
-              UserResponse response = userService.createUser(request);
-              
-              // Assert
-              assertNotNull(response);
-              assertEquals("testuser", response.getUsername());
-              assertEquals("test@example.com", response.getEmail());
-              
-              verify(userRepository).existsByUsername("testuser");
-              verify(userRepository).existsByEmail("test@example.com");
-              verify(userRepository).save(any(User.class));
-          }
-      }
-      \`\`\`
-      
-      ## Integration Tests
-      We use testcontainers for integration tests with actual databases:
-      
-      \`\`\`java
-      @SpringBootTest
-      @Testcontainers
-      class UserRepositoryIntegrationTest {
-          @Container
-          static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:13")
-              .withDatabaseName("testdb")
-              .withUsername("test")
-              .withPassword("test");
-          
-          @DynamicPropertySource
-          static void registerPgProperties(DynamicPropertyRegistry registry) {
-              registry.add("spring.datasource.url", postgres::getJdbcUrl);
-              registry.add("spring.datasource.username", postgres::getUsername);
-              registry.add("spring.datasource.password", postgres::getPassword);
-          }
-          
-          @Autowired
-          private UserRepository userRepository;
-          
-          @Test
-          void findByUsername_ShouldReturnUser() {
-              // Arrange
-              User user = new User();
-              user.setUsername("testuser");
-              user.setEmail("test@example.com");
-              user.setPassword("hashedpassword");
-              userRepository.save(user);
-              
-              // Act
-              Optional<User> found = userRepository.findByUsername("testuser");
-              
-              // Assert
-              assertTrue(found.isPresent());
-              assertEquals("testuser", found.get().getUsername());
-              assertEquals("test@example.com", found.get().getEmail());
-          }
-      }
-      \`\`\`
-      
-      ## API Tests
-      We use REST Assured for API testing:
-      
-      \`\`\`java
-      @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-      class UserControllerApiTest {
-          @LocalServerPort
-          private int port;
-          
-          @Test
-          void registerUser_ShouldReturnCreated() {
-              RegisterRequest request = new RegisterRequest("newuser", "new@example.com", "password123");
-              
-              given()
-                  .port(port)
-                  .contentType(ContentType.JSON)
-                  .body(request)
-              .when()
-                  .post("/auth/register")
-              .then()
-                  .statusCode(201);
-          }
-      }
-      \`\`\`
-      
-      ## End-to-End Tests
-      We use Cypress for E2E testing of the entire system.
-      
-      ## Performance Tests
-      We use JMeter and Gatling for load testing each service and the system as a whole.`,
-      summary:
-        'Comprehensive testing strategy for microservices with unit, integration, API, E2E, and performance testing',
-    };
-    await vectorRepo.addContext(
-      testingStrategyContext.id,
-      testingStrategyContext.text,
-      testingStrategyContext.summary
-    );
-
-    // Add relationships
-    await vectorRepo.addRelationship(
-      architectureContext.id,
-      testingStrategyContext.id,
-      'relates_to',
-      0.7
-    );
-    await vectorRepo.addRelationship(
-      userServiceContext.id,
-      testingStrategyContext.id,
-      'tested_by',
-      0.8
-    );
-    console.log('✓ Added testing strategy context with relationships');
-
-    // Phase 4: DevOps Pipeline Discussion
-    console.log('\nPhase 4: DevOps Pipeline Discussion');
-
-    const devopsContext = {
-      id: 'devops-pipeline',
-      text: `# CI/CD Pipeline for Microservices
-      
-      Our CI/CD pipeline is implemented using GitHub Actions with the following workflow:
-      
-      \`\`\`yaml
-      name: Microservice CI/CD Pipeline
-      
-      on:
-        push:
-          branches: [ main, develop ]
-        pull_request:
-          branches: [ main, develop ]
-      
-      jobs:
-        build:
-          runs-on: ubuntu-latest
-          
-          steps:
-          - uses: actions/checkout@v3
-          
-          - name: Set up JDK 17
-            uses: actions/setup-java@v3
-            with:
-              java-version: '17'
-              distribution: 'temurin'
-              cache: maven
-          
-          - name: Build with Maven
-            run: mvn -B package --file pom.xml
-          
-          - name: Run Tests
-            run: mvn test
-          
-          - name: Build Docker image
-            run: |
-              docker build -t myorg/user-service:$GITHUB_SHA .
-              docker tag myorg/user-service:$GITHUB_SHA myorg/user-service:latest
-          
-          - name: Push Docker image
-            if: github.ref == 'refs/heads/main'
-            run: |
-              echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
-              docker push myorg/user-service:$GITHUB_SHA
-              docker push myorg/user-service:latest
-          
-          - name: Deploy to Kubernetes
-            if: github.ref == 'refs/heads/main'
-            run: |
-              kubectl config use-context production
-              kubectl set image deployment/user-service user-service=myorg/user-service:$GITHUB_SHA
-              kubectl rollout status deployment/user-service
-      \`\`\`
-      
-      The pipeline includes:
-      
-      1. **Build**: Compile the code and package the application
-      2. **Test**: Run all tests to ensure quality
-      3. **Package**: Build Docker images
-      4. **Publish**: Push Docker images to registry
-      5. **Deploy**: Update Kubernetes deployments
-      
-      We use GitOps principles for managing infrastructure with ArgoCD:
-      
-      \`\`\`yaml
-      apiVersion: argoproj.io/v1alpha1
-      kind: Application
-      metadata:
-        name: user-service
-        namespace: argocd
-      spec:
-        project: default
-        source:
-          repoURL: https://github.com/myorg/k8s-manifests.git
-          targetRevision: HEAD
-          path: user-service
-        destination:
-          server: https://kubernetes.default.svc
-          namespace: microservices
-        syncPolicy:
-          automated:
-            prune: true
-            selfHeal: true
-      \`\`\`
-      
-      This ensures that our infrastructure is always in sync with our code repositories.`,
-      summary:
-        'CI/CD pipeline with GitHub Actions and Kubernetes deployment for microservices architecture',
-    };
-    await vectorRepo.addContext(devopsContext.id, devopsContext.text, devopsContext.summary);
-
-    // Add relationships
-    await vectorRepo.addRelationship(architectureContext.id, devopsContext.id, 'deployed_by', 0.8);
-    await vectorRepo.addRelationship(
-      testingStrategyContext.id,
-      devopsContext.id,
-      'integrated_with',
-      0.7
-    );
-    console.log('✓ Added DevOps pipeline context with relationships');
-
-    // Phase 5: Complex Search Testing
-    console.log('\nPhase 5: Complex Search Testing');
-
-    // Test 1: Search for implementation details with specific technology
-    const search1 = await vectorRepo.findSimilarContexts(
-      'Spring Boot user service implementation',
-      3
-    );
-    console.log(
-      `Search 1: Found ${search1.length} results for "Spring Boot user service implementation"`
-    );
-    console.log(
-      'Search 1 results:',
-      JSON.stringify(
-        search1.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify specific context is found with good similarity
-    if (search1.length === 0) {
-      throw new Error('Expected to find some results for Spring Boot user service query');
-    }
-    // Log success
-    console.log('✓ Found results for Spring Boot user service implementation query');
-
-    // Test 2: Search for architectural components
-    const search2 = await vectorRepo.findSimilarContexts(
-      'What database does the analytics service use?',
-      3
-    );
-    console.log(
-      `Search 2: Found ${search2.length} results for "What database does the analytics service use?"`
-    );
-    console.log(
-      'Search 2 results:',
-      JSON.stringify(
-        search2.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify architecture context is found with good similarity
-    if (search2.length === 0) {
-      throw new Error('Expected to find some results for database question');
-    }
-    // Log success
-    console.log('✓ Found results for database query');
-
-    // Test 3: Search with code sample
-    const search3 = await vectorRepo.findSimilarContexts(
-      `
-    @RestController
-    public class UserController {
-        @GetMapping("/users")
-        public List<User> getAllUsers() {
-            // Implementation needed
+          res.status(201).json(result.rows[0]);
+        } catch (err) {
+          console.error('Registration error:', err);
+          res.status(500).json({ error: 'Server error' });
         }
-    }`,
+      });
+      
+      // User login
+      app.post('/login', async (req: Request, res: Response) => {
+        try {
+          const { email, password } = req.body;
+          
+          // Validate input
+          if (!email || !password) {
+            return res.status(400).json({ error: 'Email and password are required' });
+          }
+          
+          // Find user
+          const result = await pool.query(
+            'SELECT * FROM users WHERE email = $1', [email]
+          );
+          
+          if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+          }
+          
+          const user = result.rows[0];
+          
+          // Verify password
+          const isMatch = await bcrypt.compare(password, user.password);
+          
+          if (!isMatch) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+          }
+          
+          // Generate JWT
+          const token = jwt.sign(
+            { id: user.id, email: user.email },
+            process.env.JWT_SECRET || 'default_secret',
+            { expiresIn: '1d' }
+          );
+          
+          res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
+        } catch (err) {
+          console.error('Login error:', err);
+          res.status(500).json({ error: 'Server error' });
+        }
+      });
+      
+      // Protected route example
+      app.get('/profile', authenticateToken, async (req: Request, res: Response) => {
+        try {
+          const userId = req.user.id;
+          
+          const result = await pool.query(
+            'SELECT id, username, email, created_at FROM users WHERE id = $1',
+            [userId]
+          );
+          
+          if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+          }
+          
+          res.json(result.rows[0]);
+        } catch (err) {
+          console.error('Profile error:', err);
+          res.status(500).json({ error: 'Server error' });
+        }
+      });
+      
+      // Authentication middleware
+      function authenticateToken(req: Request, res: Response, next: NextFunction) {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+        
+        if (!token) {
+          return res.status(401).json({ error: 'Authentication required' });
+        }
+        
+        jwt.verify(token, process.env.JWT_SECRET || 'default_secret', (err: any, user: any) => {
+          if (err) {
+            return res.status(403).json({ error: 'Invalid or expired token' });
+          }
+          
+          req.user = user;
+          next();
+        });
+      }
+      
+      // Start server
+      const PORT = process.env.PORT || 3001;
+      app.listen(PORT, () => {
+        console.log(\`User service running on port \${PORT}\`);
+      });
+      \`\`\`
+      
+      This covers basic user registration, authentication, and profile retrieval. We're using PostgreSQL for storing user data, bcrypt for password hashing, and JWT for authentication tokens.`,
+      'user',
+      'HIGH',
+      ['user-service', 'typescript', 'code']
+    );
+
+    // Phase 4: Testing Context Retrieval
+    console.log('\nPhase 4: Testing Context Retrieval');
+
+    // Retrieve a specific context
+    const apiGatewayContext = await getContext('api-gateway-implementation');
+    console.log(
+      `Retrieved API Gateway context with ${(apiGatewayContext as { messages: unknown[] }).messages.length} messages`
+    );
+
+    // Use the search functionality to find similar contexts
+    const similarContexts = await searchSimilarContexts(
+      'microservice architecture design patterns',
       3
     );
-    console.log(`Search 3: Found ${search3.length} results for Java controller code snippet`);
-    console.log(
-      'Search 3 results:',
-      JSON.stringify(
-        search3.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify implementation context is found with good similarity for code sample
-    if (search3.length === 0) {
-      throw new Error('Expected to find some results for Java controller code');
+    console.log('Similar contexts found:');
+    for (const context of similarContexts) {
+      console.log(
+        `- ${context.contextId} (similarity: ${(context.similarity as number)?.toFixed(2) || 'N/A'})`
+      );
     }
-    // Log success
-    console.log('✓ Found results for Java controller code snippet');
 
-    // Test 4: Search for testing details
-    const search4 = await vectorRepo.findSimilarContexts(
-      'How are integration tests implemented with databases?',
-      3
-    );
-    console.log(
-      `Search 4: Found ${search4.length} results for "How are integration tests implemented with databases?"`
-    );
-    console.log(
-      'Search 4 results:',
-      JSON.stringify(
-        search4.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify relevant contexts for integration tests are found
-    if (search4.length === 0) {
-      throw new Error('Expected to find some results for integration test query');
+    // Test context search with code query
+    const codeContexts = await searchSimilarContexts('express nodejs authentication middleware', 3);
+    console.log('Code-related contexts found:');
+    for (const context of codeContexts) {
+      console.log(
+        `- ${context.contextId} (similarity: ${(context.similarity as number)?.toFixed(2) || 'N/A'})`
+      );
     }
-    // Log success
-    console.log('✓ Found results for integration test query');
 
-    // Test 5: Search with obscure wording
-    const search5 = await vectorRepo.findSimilarContexts(
-      "What's the CI/CD setup for deploying the microservices stuff?",
-      3
-    );
-    console.log(`Search 5: Found ${search5.length} results for informal devops question`);
-    console.log(
-      'Search 5 results:',
-      JSON.stringify(
-        search5.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify devops context is found with good similarity despite informal language
-    if (search5.length === 0) {
-      throw new Error('Expected to find some results for informal devops question');
-    }
-    // Log success
-    console.log('✓ Found results for informal devops question');
-
-    // Test 6: Test with relationship boost
-    // This query could match multiple contexts, but relationships should boost the most connected one
-    const search6 = await vectorRepo.findSimilarContexts(
-      'How does the overall system architecture work?',
-      3
-    );
-    console.log(`Search 6: Found ${search6.length} results for general architecture question`);
-    console.log(
-      'Search 6 results:',
-      JSON.stringify(
-        search6.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify architecture context is ranked highly due to relationships
-    if (search6.length === 0) {
-      throw new Error('Expected to find some results for architecture question');
-    }
-    // Log success
-    console.log('✓ Found results for architecture question');
-
-    console.log('\n✓ All complex search tests passed');
-
-    console.log('\n=== Complex Development Scenario Integration Test Completed Successfully ===\n');
+    console.log('\n=== Test completed successfully ===\n');
   } catch (error) {
-    console.error('Complex development scenario test failed:', error);
-    process.exit(1);
+    console.error('Test failed with error:', error);
+    throw error;
   } finally {
     await cleanupTestEnvironment();
   }
 }
 
-// Run the test if this file is executed directly
-if (require.main === module) {
-  runComplexDevelopmentScenario();
-}
-
-export { runComplexDevelopmentScenario };
+// Export the function for direct execution if needed

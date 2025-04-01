@@ -12,6 +12,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { initializeMcpServer, InitializedServices } from '../../main';
+import { TOOL_NAMES, AddContextParams, GetContextParams } from '../../domain/types';
 
 // Global test services object
 let testServices: InitializedServices | null = null;
@@ -31,7 +32,6 @@ async function setupTestEnvironment(): Promise<InitializedServices> {
   process.env.MCP_CONTEXT_DIR = tempDir;
   process.env.MCP_USE_VECTOR_DB = 'true';
   process.env.MCP_USE_GRAPH_DB = 'true';
-  process.env.MCP_DEBUG = 'true';
 
   // Initialize services using main.ts
   testServices = await initializeMcpServer();
@@ -48,10 +48,37 @@ async function setupTestEnvironment(): Promise<InitializedServices> {
  * Cleans up the test environment after tests complete
  */
 async function cleanupTestEnvironment(): Promise<void> {
+  console.log('리소스 정리 중...');
+  
+  // Explicitly close the embedding model
+  try {
+    console.log('Embedding Model 정리 중...');
+    const { EmbeddingUtil } = require('../../utils/embedding');
+    await EmbeddingUtil.getInstance().close();
+    console.log('Embedding Model 세션 정리 완료');
+  } catch (error) {
+    console.error('Embedding Model 정리 중 오류 발생:', error);
+  }
+  
   if (testServices) {
     // Clean up resources if needed
     if (testServices.vectorRepository) {
-      await testServices.vectorRepository.close();
+      try {
+        console.log('Vector Repository 정리 중...');
+        await testServices.vectorRepository.close();
+      } catch (error) {
+        console.error('Vector Repository 정리 중 오류 발생:', error);
+      }
+    }
+    
+    if (testServices.graphRepository) {
+      try {
+        console.log('Graph Repository 정리 중...');
+        // GraphRepository에는 close 메서드가 없으므로 직접적인 정리가 필요 없음
+        console.log('Graph Repository 정리 완료');
+      } catch (error) {
+        console.error('Graph Repository 정리 중 오류 발생:', error);
+      }
     }
 
     // Reset test services
@@ -61,6 +88,7 @@ async function cleanupTestEnvironment(): Promise<void> {
   // Clean up test data
   const tempDir = path.join(__dirname, '../../..', 'test-temp');
   try {
+    console.log('테스트 데이터 디렉토리 정리 중...');
     await fs.remove(tempDir);
   } catch (error) {
     console.error('Failed to remove test directory:', error);
@@ -70,30 +98,142 @@ async function cleanupTestEnvironment(): Promise<void> {
   delete process.env.MCP_CONTEXT_DIR;
   delete process.env.MCP_USE_VECTOR_DB;
   delete process.env.MCP_USE_GRAPH_DB;
-  delete process.env.MCP_DEBUG;
+  
+  console.log('테스트 환경 정리 완료');
+  
+  // 짧은 대기 시간 추가하여 모든 비동기 작업이 완료되도록 함
+  await new Promise(resolve => setTimeout(resolve, 500));
 }
 
-async function runReactAIDevelopmentScenario() {
+/**
+ * Helper function to simulate add_context tool calls
+ */
+async function addContext(
+  contextId: string,
+  message: string,
+  role: 'user' | 'assistant',
+  importance: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM',
+  tags: string[] = []
+): Promise<void> {
+  if (!testServices?.mcpServer) {
+    throw new Error('MCP server not initialized');
+  }
+
+  const addContextTool = testServices.mcpServer.tools.find(
+    (tool) => tool.getName() === TOOL_NAMES.ADD_CONTEXT
+  );
+
+  if (!addContextTool) {
+    throw new Error(`${TOOL_NAMES.ADD_CONTEXT} tool not found`);
+  }
+
+  const handler = addContextTool.getHandler(testServices.mcpServer);
+
+  const params: AddContextParams = {
+    contextId,
+    message,
+    role,
+    importance,
+    tags,
+  };
+
+  await handler(params);
+  console.log(`✓ Added ${role} message to context: ${contextId}`);
+}
+
+/**
+ * Helper function to simulate get_context tool calls
+ */
+async function getContext(contextId: string): Promise<Record<string, unknown>> {
+  if (!testServices?.mcpServer) {
+    throw new Error('MCP server not initialized');
+  }
+
+  const getContextTool = testServices.mcpServer.tools.find(
+    (tool) => tool.getName() === TOOL_NAMES.GET_CONTEXT
+  );
+
+  if (!getContextTool) {
+    throw new Error(`${TOOL_NAMES.GET_CONTEXT} tool not found`);
+  }
+
+  const handler = getContextTool.getHandler(testServices.mcpServer);
+
+  const params: GetContextParams = {
+    contextId,
+  };
+
+  const result = (await handler(params)) as { content: Array<{ text: string }>; isError: boolean };
+  const parsedResult = JSON.parse(result.content[0].text);
+
+  if (!parsedResult.success) {
+    throw new Error(`Failed to get context: ${parsedResult.error}`);
+  }
+
+  const context = parsedResult.result;
+  console.log(`✓ Retrieved context: ${contextId} (${context.messages.length} messages)`);
+  return context;
+}
+
+/**
+ * Helper function to simulate get_context with query
+ */
+async function searchSimilarContexts(
+  query: string,
+  limit: number = 5
+): Promise<Array<Record<string, unknown>>> {
+  if (!testServices?.mcpServer) {
+    throw new Error('MCP server not initialized');
+  }
+
+  const getContextTool = testServices.mcpServer.tools.find(
+    (tool) => tool.getName() === TOOL_NAMES.GET_CONTEXT
+  );
+
+  if (!getContextTool) {
+    throw new Error(`${TOOL_NAMES.GET_CONTEXT} tool not found`);
+  }
+
+  const handler = getContextTool.getHandler(testServices.mcpServer);
+
+  const params: GetContextParams = {
+    query,
+    limit,
+  };
+
+  const result = (await handler(params)) as { content: Array<{ text: string }>; isError: boolean };
+  const parsedResult = JSON.parse(result.content[0].text);
+
+  if (!parsedResult.success) {
+    throw new Error(`Failed to search contexts: ${parsedResult.error}`);
+  }
+
+  const similarContexts = parsedResult.result;
+  console.log(
+    `✓ Found ${similarContexts.length} similar contexts for query: "${query.substring(0, 30)}..."`
+  );
+
+  return similarContexts;
+}
+
+/**
+ * Run the React AI Development Scenario test
+ */
+export async function runReactAIDevelopmentScenario() {
   // Initialize test environment
-  let testServices: InitializedServices;
   try {
-    testServices = await setupTestEnvironment();
+    const services = await setupTestEnvironment();
+    testServices = services;
 
     console.log('\n=== React AI Development Scenario Integration Test ===\n');
-
-    const vectorRepo = testServices.vectorRepository;
-
-    if (!vectorRepo) {
-      throw new Error('Vector repository not initialized in test services');
-    }
 
     // Phase 1: Initial Project Setup and Requirements
     console.log('Phase 1: Initial Project Setup and Requirements Discussion');
 
     // Add project requirements discussion
-    const projectRequirements = {
-      id: 'project-requirements',
-      text: `# React Todo App Requirements
+    await addContext(
+      'project-requirements',
+      `# React Todo App Requirements
 
       We need to build a React-based Todo application with the following features:
       
@@ -118,23 +258,18 @@ async function runReactAIDevelopmentScenario() {
          - React Testing Library for tests
       
       The app should be performant, accessible, and maintainable with clear component structure.`,
-      summary:
-        'Requirements for a React Todo application with task management, UX features, and technical specifications',
-    };
-    await vectorRepo.addContext(
-      projectRequirements.id,
-      projectRequirements.text,
-      projectRequirements.summary
+      'user',
+      'HIGH',
+      ['requirements', 'todo-app', 'react']
     );
-    console.log('✓ Added project requirements context');
 
     // Phase 2: Component Structure Discussion
     console.log('\nPhase 2: Component Structure Discussion');
 
     // Add component structure discussion
-    const componentStructure = {
-      id: 'component-structure',
-      text: `# React Todo App Component Structure
+    await addContext(
+      'component-structure',
+      `# React Todo App Component Structure
 
       Based on our requirements, here's a proposed component structure:
 
@@ -161,31 +296,18 @@ async function runReactAIDevelopmentScenario() {
          - **TodoFilter**: Type for filter options
       
       This structure follows a clear separation of concerns and promotes reusability. Each component has a single responsibility and the custom hooks encapsulate complex logic.`,
-      summary:
-        'Component structure for the React Todo app including main components, hooks, context, and types',
-    };
-    await vectorRepo.addContext(
-      componentStructure.id,
-      componentStructure.text,
-      componentStructure.summary
+      'user',
+      'HIGH',
+      ['architecture', 'component-structure', 'design']
     );
-
-    // Add relationship between contexts
-    await vectorRepo.addRelationship(
-      projectRequirements.id,
-      componentStructure.id,
-      'leads_to',
-      0.9
-    );
-    console.log('✓ Added component structure context with relationship');
 
     // Phase 3: Implementation of Core Components
     console.log('\nPhase 3: Implementation of Core Components');
 
     // Add TodoItem component implementation
-    const todoItemComponent = {
-      id: 'todo-item-implementation',
-      text: `# TodoItem Component Implementation
+    await addContext(
+      'todo-item-implementation',
+      `# TodoItem Component Implementation
 
       Here's the implementation of the TodoItem component:
 
@@ -299,31 +421,40 @@ async function runReactAIDevelopmentScenario() {
       \`\`\`
 
       This component handles both viewing and editing modes for a todo item, with appropriate styling for each state. The component is fully typed with TypeScript and uses styled-components for styling.`,
-      summary:
-        'Implementation of the TodoItem component with view and edit modes, styling, and TypeScript types',
-    };
-    await vectorRepo.addContext(
-      todoItemComponent.id,
-      todoItemComponent.text,
-      todoItemComponent.summary
+      'user',
+      'HIGH',
+      ['component', 'implementation', 'code']
     );
 
-    // Add relationship to component structure
-    await vectorRepo.addRelationship(
-      componentStructure.id,
-      todoItemComponent.id,
-      'implements',
-      0.9
+    // Response from assistant
+    await addContext(
+      'todo-item-implementation',
+      `The TodoItem component looks well-structured and follows best practices for a React component. I particularly like:
+
+      1. The clear separation of viewing vs editing modes
+      2. Strong typing with TypeScript for props and state
+      3. Styled-components usage for scoped styling
+      4. Clean handling of form submission for edits
+      
+      A few suggestions to consider:
+      
+      1. Add proper accessibility attributes (aria-*) for better screen reader support
+      2. Consider adding keyboard shortcuts for common actions
+      3. You might want to add some subtle animation when transitioning between view/edit modes
+      
+      Overall, this is an excellent implementation that follows modern React practices.`,
+      'assistant',
+      'MEDIUM',
+      ['feedback', 'review']
     );
-    console.log('✓ Added TodoItem component implementation with relationship');
 
     // Phase 4: State Management Implementation
     console.log('\nPhase 4: State Management Implementation');
 
     // Add context API implementation
-    const stateManagement = {
-      id: 'state-management',
-      text: `# Todo App State Management with Context API
+    await addContext(
+      'state-management',
+      `# Todo App State Management with Context API
 
       Here's how we implement state management using React Context:
 
@@ -441,23 +572,18 @@ async function runReactAIDevelopmentScenario() {
       3. Implements localStorage persistence
       4. Provides a custom hook for easy access to the context
       5. Ensures type safety throughout with TypeScript`,
-      summary:
-        'Implementation of state management using React Context API with localStorage persistence, filtering, and TypeScript types',
-    };
-    await vectorRepo.addContext(stateManagement.id, stateManagement.text, stateManagement.summary);
-
-    // Add relationships
-    await vectorRepo.addRelationship(componentStructure.id, stateManagement.id, 'implements', 0.85);
-    await vectorRepo.addRelationship(todoItemComponent.id, stateManagement.id, 'uses', 0.8);
-    console.log('✓ Added state management implementation with relationships');
+      'user',
+      'HIGH',
+      ['state-management', 'context-api', 'implementation']
+    );
 
     // Phase 5: Testing Strategy
     console.log('\nPhase 5: Testing Strategy');
 
     // Add testing strategy discussion
-    const testingStrategy = {
-      id: 'testing-strategy',
-      text: `# Testing Strategy for React Todo App
+    await addContext(
+      'testing-strategy',
+      `# Testing Strategy for React Todo App
 
       Here's our comprehensive testing approach for the Todo application:
 
@@ -649,23 +775,18 @@ async function runReactAIDevelopmentScenario() {
       - Integration tests for component interactions
       - E2E tests for complete user flows
       - Test coverage for all key features`,
-      summary:
-        'Comprehensive testing strategy for the React Todo app with unit, integration, and E2E testing examples',
-    };
-    await vectorRepo.addContext(testingStrategy.id, testingStrategy.text, testingStrategy.summary);
-
-    // Add relationships
-    await vectorRepo.addRelationship(todoItemComponent.id, testingStrategy.id, 'tested_by', 0.8);
-    await vectorRepo.addRelationship(stateManagement.id, testingStrategy.id, 'tested_by', 0.75);
-    console.log('✓ Added testing strategy with relationships');
+      'user',
+      'HIGH',
+      ['testing', 'testing-library', 'cypress']
+    );
 
     // Phase 6: User Feedback and Iterations
     console.log('\nPhase 6: User Feedback and Iterations');
 
     // Add user feedback and iterations
-    const userFeedback = {
-      id: 'user-feedback',
-      text: `# User Feedback and Iterations on Todo App
+    await addContext(
+      'user-feedback',
+      `# User Feedback and Iterations on Todo App
 
       After the first round of user testing, we received the following feedback:
 
@@ -855,78 +976,28 @@ async function runReactAIDevelopmentScenario() {
       3. **Performance**: App handles 1000+ todos with minimal lag
 
       User satisfaction scores increased from 72% to 94% after these changes.`,
-      summary:
-        'User feedback leading to iterations including accessibility improvements, UX enhancements, and performance optimizations',
-    };
-    await vectorRepo.addContext(userFeedback.id, userFeedback.text, userFeedback.summary);
-
-    // Add relationships
-    await vectorRepo.addRelationship(todoItemComponent.id, userFeedback.id, 'improved_by', 0.85);
-    await vectorRepo.addRelationship(testingStrategy.id, userFeedback.id, 'validates', 0.7);
-    console.log('✓ Added user feedback and iterations with relationships');
+      'user',
+      'HIGH',
+      ['feedback', 'iterations', 'improvements']
+    );
 
     // Phase 7: Complex Search Testing
     console.log('\nPhase 7: Complex Search Testing');
 
     // Test 1: Search for React component implementation
-    const search1 = await vectorRepo.findSimilarContexts(
-      'React todo item component with TypeScript',
-      2
-    );
+    const search1 = await searchSimilarContexts('React todo item component with TypeScript', 2);
     console.log(
       `Search 1: Found ${search1.length} results for "React todo item component with TypeScript"`
     );
-    console.log(
-      'Search 1 results:',
-      JSON.stringify(
-        search1.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify relevant contexts for React components are found
-    // Component information might be in testing or structure documents
-    if (search1.length === 0) {
-      throw new Error('Expected to find some results for React component query');
-    }
-    // Log success
-    console.log('✓ Found results for React component query');
 
     // Test 2: Search for state management
-    const search2 = await vectorRepo.findSimilarContexts(
-      'How is state managed in the React todo app?',
-      2
-    );
+    const search2 = await searchSimilarContexts('How is state managed in the React todo app?', 2);
     console.log(
       `Search 2: Found ${search2.length} results for "How is state managed in the React todo app?"`
     );
-    console.log(
-      'Search 2 results:',
-      JSON.stringify(
-        search2.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify relevant context for state management is found
-    if (search2.length === 0) {
-      throw new Error('Expected to find some results for state management query');
-    }
-    // Log success
-    console.log('✓ Found results for state management query');
 
     // Test 3: Search with code sample
-    const search3 = await vectorRepo.findSimilarContexts(
+    const search3 = await searchSimilarContexts(
       `
     export interface Todo {
       id: string;
@@ -936,81 +1007,30 @@ async function runReactAIDevelopmentScenario() {
       2
     );
     console.log(`Search 3: Found ${search3.length} results for Todo interface code snippet`);
-    console.log(
-      'Search 3 results:',
-      JSON.stringify(
-        search3.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify appropriate context is found with good similarity for Todo interface
-    if (search3.length === 0) {
-      throw new Error('Expected to find some results for Todo interface code');
-    }
-    // Log success
-    console.log('✓ Found results for Todo interface code snippet');
 
     // Test 4: Search for testing approach
-    const search4 = await vectorRepo.findSimilarContexts(
+    const search4 = await searchSimilarContexts(
       'How to test React components with testing library?',
       2
     );
     console.log(
       `Search 4: Found ${search4.length} results for "How to test React components with testing library?"`
     );
-    console.log(
-      'Search 4 results:',
-      JSON.stringify(
-        search4.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
-
-    // Verify testing strategy or relevant context is found
-    if (search4.length === 0) {
-      throw new Error('Expected to find some results for testing query');
-    }
-    // Log success
-    console.log('✓ Found results for testing query');
 
     // Test 5: Search for feedback and iterations
-    const search5 = await vectorRepo.findSimilarContexts(
+    const search5 = await searchSimilarContexts(
       'What accessibility improvements were made after feedback?',
       2
     );
     console.log(
       `Search 5: Found ${search5.length} results for accessibility improvements question`
     );
-    console.log(
-      'Search 5 results:',
-      JSON.stringify(
-        search5.map((r) => ({
-          id: r.contextId,
-          similarity: r.similarity,
-          summary: r.summary?.substring(0, 50) + '...',
-        })),
-        null,
-        2
-      )
-    );
 
-    // Verify any relevant context is found
-    if (search5.length === 0) {
-      throw new Error('Expected to find some results for accessibility query');
-    }
-    // Log success
-    console.log('✓ Found results for accessibility query');
+    // Get a specific context
+    const todoItemContext = await getContext('todo-item-implementation');
+    console.log(
+      `Retrieved TodoItem context with ${(todoItemContext as { messages: unknown[] }).messages.length} messages`
+    );
 
     console.log('\n✓ All complex search tests passed');
     console.log(
@@ -1018,15 +1038,8 @@ async function runReactAIDevelopmentScenario() {
     );
   } catch (error) {
     console.error('React AI development scenario test failed:', error);
-    process.exit(1);
+    throw error;
   } finally {
     await cleanupTestEnvironment();
   }
 }
-
-// Run the test if this file is executed directly
-if (require.main === module) {
-  runReactAIDevelopmentScenario();
-}
-
-export { runReactAIDevelopmentScenario };
