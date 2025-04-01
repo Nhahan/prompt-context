@@ -289,18 +289,77 @@ export class EmbeddingUtil {
     if (pooling === 'cls') {
       // Use CLS token embedding (first token)
       const tokenEmbeddings = results['token_embeddings'];
-      return Array.from(tokenEmbeddings.data as Float32Array).slice(0, tokenEmbeddings.dims[2]);
+      if (!tokenEmbeddings || !tokenEmbeddings.data) {
+        throw new Error('Missing token_embeddings data');
+      }
+      return this.convertTensorData(tokenEmbeddings).slice(0, tokenEmbeddings.dims[2]);
     } else if (pooling === 'mean') {
       // Use sentence embedding which is already mean-pooled
-      return Array.from(results['sentence_embedding'].data as Float32Array);
+      const sentenceEmbedding = results['sentence_embedding'];
+      if (!sentenceEmbedding || !sentenceEmbedding.data) {
+        throw new Error('Missing sentence_embedding data');
+      }
+      return this.convertTensorData(sentenceEmbedding);
     } else {
       // Return all token embeddings (no pooling)
-      return Array.from(results['token_embeddings'].data as Float32Array);
+      const tokenEmbeddings = results['token_embeddings'];
+      if (!tokenEmbeddings || !tokenEmbeddings.data) {
+        throw new Error('Missing token_embeddings data');
+      }
+      return this.convertTensorData(tokenEmbeddings);
     }
   }
 
   /**
-   * Generates an embedding for the given text
+   * 텐서 데이터를 number[] 형태로 변환
+   */
+  private convertTensorData(tensor: ort.Tensor): number[] {
+    // onnx는 Float32Array를 기대하지만, 브라우저나 Node.js 환경에 따라 다른 형태일 수 있음
+    // 따라서 명시적으로 숫자 배열로 변환하는 로직이 필요함
+    
+    try {
+      // 1. TypedArray 확인
+      if (tensor.data instanceof Float32Array) {
+        return Array.from(tensor.data);
+      }
+      
+      // 2. ArrayBuffer일 경우
+      if (tensor.data instanceof ArrayBuffer) {
+        return Array.from(new Float32Array(tensor.data));
+      }
+      
+      // 3. 일반 배열인 경우
+      if (Array.isArray(tensor.data)) {
+        return (tensor.data as unknown[]).map(val => Number(val));
+      }
+      
+      // 4. Object일 경우 (onnx-runtime 내부 표현 방식에 따라 다름)
+      if (typeof tensor.data === 'object' && tensor.data !== null) {
+        // onnx-runtime이 Float32Array를 기대하는 형태로 명시적 변환 시도
+        const size = tensor.dims.reduce((a, b) => a * b, 1);
+        const result = new Array(size);
+        
+        // 데이터가 순차적인 키를 가지고 있는지 확인
+        for (let i = 0; i < size; i++) {
+          if (i in tensor.data) {
+            result[i] = Number(tensor.data[i]);
+          } else {
+            result[i] = 0; // 기본값
+          }
+        }
+        
+        return result;
+      }
+      
+      throw new Error(`Unsupported tensor data type: ${typeof tensor.data}`);
+    } catch (error) {
+      // 변환 중 오류가 발생하면 명시적으로 던져서 호출자가 처리하도록 함
+      throw new Error(`Failed to convert tensor data: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Generate embedding for text
    */
   public async generateEmbedding(text: string): Promise<number[]> {
     await this.ensureInitialized();
@@ -309,20 +368,22 @@ export class EmbeddingUtil {
       throw new Error('Embedding model not initialized');
     }
 
-    try {
-      const result = await this._model.generate(text, {
-        pooling: 'mean',
-        normalize: true,
-      });
+    const result = await this._model.generate(text, {
+      pooling: 'mean',
+      normalize: true,
+    });
 
-      if (!result?.data) {
-        throw new Error('Invalid embedding result format');
-      }
+    if (!result?.data) {
+      throw new Error('Invalid embedding result format');
+    }
 
+    // 결과 데이터 처리
+    if (result.data instanceof Float32Array) {
       return Array.from(result.data);
-    } catch (error) {
-      console.error('Error generating embedding:', error);
-      throw error;
+    } else if (Array.isArray(result.data)) {
+      return result.data;
+    } else {
+      return Array.from(result.data as unknown as ArrayLike<number>);
     }
   }
 
