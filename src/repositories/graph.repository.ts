@@ -1,13 +1,24 @@
 import graphology from 'graphology';
 import fs from 'fs-extra';
 import path from 'path';
-import { GraphRepositoryInterface, EdgeType } from './repository.interface';
 import { ContextRelationshipType } from '../domain/types';
+
+/**
+ * Edge type for graph relationships
+ */
+export interface EdgeType {
+  source: string;
+  target: string;
+  type: ContextRelationshipType;
+  weight: number;
+  createdAt: number;
+  metadata?: Record<string, unknown>;
+}
 
 /**
  * Repository for managing graph database operations
  */
-export class GraphRepository implements GraphRepositoryInterface {
+export class GraphRepository {
   private graph: graphology;
   private dbPath: string;
   private isInitialized: boolean = false;
@@ -98,131 +109,6 @@ export class GraphRepository implements GraphRepositoryInterface {
       await this.saveGraph();
     } catch (error) {
       console.error('Error adding relationship:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get contexts related to the given context
-   */
-  public async getRelatedContexts(
-    contextId: string,
-    type?: ContextRelationshipType,
-    direction: 'outgoing' | 'incoming' | 'both' = 'both'
-  ): Promise<string[]> {
-    await this.ensureInitialized();
-
-    try {
-      const relatedContexts = new Set<string>();
-
-      if (direction === 'outgoing' || direction === 'both') {
-        this.graph.forEachOutNeighbor(contextId, (neighbor, attributes) => {
-          if (!type || attributes.type === type) {
-            relatedContexts.add(neighbor);
-          }
-        });
-      }
-
-      if (direction === 'incoming' || direction === 'both') {
-        this.graph.forEachInNeighbor(contextId, (neighbor, attributes) => {
-          if (!type || attributes.type === type) {
-            relatedContexts.add(neighbor);
-          }
-        });
-      }
-
-      return Array.from(relatedContexts);
-    } catch (error) {
-      console.error('Error getting related contexts:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get all relationships for a context
-   */
-  public async getRelationships(contextId: string): Promise<EdgeType[]> {
-    await this.ensureInitialized();
-
-    try {
-      const edges: EdgeType[] = [];
-      this.graph.forEachEdge((edge, attributes, source, target) => {
-        if (source === contextId || target === contextId) {
-          edges.push({
-            source,
-            target,
-            type: attributes.type,
-            weight: attributes.weight,
-            createdAt: attributes.createdAt,
-            metadata: attributes.metadata,
-          });
-        }
-      });
-      return edges;
-    } catch (error) {
-      console.error('Error getting relationships:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Remove a context from the graph
-   */
-  public async removeContext(contextId: string): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      if (this.graph.hasNode(contextId)) {
-        this.graph.dropNode(contextId);
-        // Save changes to disk
-        await this.saveGraph();
-      }
-    } catch (error) {
-      console.error('Error removing context:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Find a path between contexts
-   */
-  public async findPath(sourceId: string, targetId: string): Promise<string[]> {
-    await this.ensureInitialized();
-
-    try {
-      if (!this.graph.hasNode(sourceId) || !this.graph.hasNode(targetId)) {
-        return [];
-      }
-      // Simple BFS implementation
-      const queue: string[] = [sourceId];
-      const visited = new Set<string>([sourceId]);
-      const parent = new Map<string, string>();
-
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        if (current === targetId) {
-          // Reconstruct path
-          const path: string[] = [targetId];
-          let node = targetId;
-          while (parent.has(node)) {
-            node = parent.get(node)!;
-            path.unshift(node);
-          }
-          return path;
-        }
-
-        this.graph.forEachNeighbor(current, (neighbor) => {
-          if (!visited.has(neighbor)) {
-            visited.add(neighbor);
-            queue.push(neighbor);
-            parent.set(neighbor, current);
-          }
-        });
-      }
-
-      return [];
-    } catch (error) {
-      console.error('Error finding path:', error);
       throw error;
     }
   }
