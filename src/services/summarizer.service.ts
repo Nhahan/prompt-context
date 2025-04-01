@@ -1,27 +1,22 @@
 import {
   Message,
-  ContextSummary,
-  HierarchicalSummary,
-  MetaSummary,
-  ContextImportance,
   SummaryResult,
+  ContextSummary,
   CodeBlock,
+  ContextImportance,
   ApiCallType,
 } from '../domain/types';
-import { SummarizerService } from './summarizer.interface';
+import { VectorRepository } from '../repositories/vector.repository';
+import { GraphRepository } from '../repositories/graph.repository';
 import { ApiAnalytics } from '../utils/analytics';
 import { calculateTokens } from '../utils/tokenizer';
-import {
-  VectorRepositoryInterface,
-  GraphRepositoryInterface,
-} from '../repositories/repository.interface';
 import { EmbeddingUtil } from '../utils/embedding';
 
 /**
  * Base summarizer service implementation
  * Users can extend this to implement their own integration with actual AI models
  */
-export abstract class BaseSummarizer implements SummarizerService {
+export abstract class BaseSummarizer {
   protected tokenPercentage: number;
   private analytics: ApiAnalytics | null = null;
 
@@ -154,116 +149,6 @@ export abstract class BaseSummarizer implements SummarizerService {
   }
 
   /**
-   * Create a hierarchical summary object
-   * @param parentId Parent context ID
-   * @param summary Summary text
-   * @param childSummaries Child summaries
-   * @param hierarchyLevel Hierarchy level
-   * @returns Hierarchical summary object
-   */
-  protected createHierarchicalSummaryObject(
-    parentId: string,
-    summary: string,
-    childSummaries: ContextSummary[],
-    hierarchyLevel = 1
-  ): HierarchicalSummary {
-    // Collect all code blocks from children
-    const allCodeBlocks: CodeBlock[] = [];
-    const childContextIds: string[] = [];
-    let totalMessageCount = 0;
-
-    for (const childSummary of childSummaries) {
-      childContextIds.push(childSummary.contextId);
-      totalMessageCount += childSummary.messageCount;
-
-      // Add important code blocks, adding source context information
-      const importantBlocks = childSummary.codeBlocks
-        .filter((block) => block.importance && block.importance >= 0.7)
-        .map((block) => ({
-          ...block,
-          sourceContextId: childSummary.contextId,
-        }));
-
-      allCodeBlocks.push(...importantBlocks);
-    }
-
-    // Calculate average importance score
-    const avgImportance =
-      childSummaries.reduce((sum, summary) => sum + (summary.importanceScore || 0.5), 0) /
-      childSummaries.length;
-
-    // Combine key insights from children
-    const allKeyInsights: string[] = [];
-    for (const childSummary of childSummaries) {
-      if (childSummary.keyInsights) {
-        allKeyInsights.push(...childSummary.keyInsights);
-      }
-    }
-
-    // Deduplicate and limit insights
-    const uniqueInsights = Array.from(new Set(allKeyInsights)).slice(0, 7);
-
-    return {
-      contextId: parentId,
-      createdAt: Date.now(),
-      summary,
-      codeBlocks: allCodeBlocks,
-      messageCount: totalMessageCount,
-      version: 1,
-      parentContextId: undefined, // Top level by default
-      childContextIds,
-      hierarchyLevel,
-      keyInsights: uniqueInsights,
-      importanceScore: avgImportance,
-    };
-  }
-
-  /**
-   * Create a meta-summary object
-   * @param id Meta-summary ID
-   * @param summary Summary text
-   * @param hierarchicalSummaries Hierarchical summaries
-   * @param hierarchyLevel Hierarchy level
-   * @returns Meta-summary object
-   */
-  protected createMetaSummaryObject(
-    id: string,
-    summary: string,
-    hierarchicalSummaries: HierarchicalSummary[],
-    hierarchyLevel = 2
-  ): MetaSummary {
-    // Extract all code blocks from child summaries
-    const sharedCodeBlocks: CodeBlock[] = [];
-    const contextIds: string[] = [];
-
-    hierarchicalSummaries.forEach((summary) => {
-      // Add code blocks
-      if (summary.codeBlocks?.length) {
-        sharedCodeBlocks.push(...summary.codeBlocks);
-      }
-
-      // Add this context ID
-      contextIds.push(summary.contextId);
-
-      // Add child context IDs if available
-      if (summary.childContextIds?.length) {
-        contextIds.push(...summary.childContextIds);
-      }
-    });
-
-    // Return meta-summary object
-    return {
-      id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      summary,
-      contextIds,
-      sharedCodeBlocks,
-      hierarchyLevel,
-    };
-  }
-
-  /**
    * Generate summary
    * @param messages Array of messages to summarize
    * @param contextId Context ID
@@ -306,72 +191,6 @@ export abstract class BaseSummarizer implements SummarizerService {
   }
 
   /**
-   * Generate hierarchical summary from multiple context summaries
-   * @param summaries Array of context summaries to consolidate
-   * @param parentId Identifier for the parent context
-   * @returns Hierarchical summary result
-   */
-  async createHierarchicalSummary(
-    summaries: ContextSummary[],
-    parentId: string
-  ): Promise<HierarchicalSummary> {
-    if (this.analytics) {
-      this.analytics.trackCall(ApiCallType.LLM_HIERARCHICAL_SUMMARIZE);
-    }
-
-    // Generate hierarchical summary using implementation-specific method
-    const summary = await this.generateHierarchicalSummary(summaries, parentId);
-
-    // Create and return the hierarchical summary object
-    return this.createHierarchicalSummaryObject(parentId, summary, summaries);
-  }
-
-  /**
-   * Create a meta-summary across all contexts
-   * @param contexts Array of context IDs to include
-   * @returns Meta-summary result
-   */
-  async createMetaSummary(contexts: string[]): Promise<MetaSummary> {
-    if (this.analytics) {
-      this.analytics.trackCall(ApiCallType.LLM_META_SUMMARIZE);
-    }
-
-    // Default implementation - create a placeholder meta-summary
-    // In a real implementation, we would fetch the hierarchical summaries related to the contexts
-    const metaSummaryId = `meta-${Date.now()}`;
-    const dummySummary =
-      'This is a placeholder meta-summary. Implement generateMetaSummary for real functionality.';
-
-    // Create and return a basic meta-summary
-    return {
-      id: metaSummaryId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      summary: dummySummary,
-      contextIds: contexts,
-      sharedCodeBlocks: [],
-      hierarchyLevel: 2,
-    };
-  }
-
-  /**
-   * Analyze message importance
-   * @param message Message to analyze
-   * @param contextId Context identifier
-   * @returns Context importance level
-   */
-  async analyzeMessageImportance(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _message: Message,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _contextId: string
-  ): Promise<ContextImportance> {
-    // Default implementation simply returns MEDIUM importance
-    // Override this in derived classes for more sophisticated analysis
-    return ContextImportance.MEDIUM;
-  }
-
-  /**
    * Abstract method to generate summary text
    * Must be implemented by derived classes
    * @param messages Array of messages to summarize
@@ -382,34 +201,11 @@ export abstract class BaseSummarizer implements SummarizerService {
     messages: Message[],
     contextId: string
   ): Promise<{ summary: string; tokensUsed?: number }>;
-
-  /**
-   * Abstract method to generate hierarchical summary text
-   * @param summaries Array of context summaries
-   * @param parentId Parent context ID
-   * @returns Hierarchical summary text
-   */
-  protected abstract generateHierarchicalSummary(
-    summaries: ContextSummary[],
-    parentId: string
-  ): Promise<string>;
-
-  /**
-   * Abstract method to generate meta-summary text
-   * @param hierarchicalSummaries Array of hierarchical summaries
-   * @param metaSummaryId Meta-summary ID
-   * @returns Meta-summary text
-   */
-  protected abstract generateMetaSummary(
-    hierarchicalSummaries: HierarchicalSummary[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    metaSummaryId: string
-  ): Promise<string>;
 }
 
 export class Summarizer extends BaseSummarizer {
-  private vectorRepository: VectorRepositoryInterface | null;
-  private graphRepository: GraphRepositoryInterface | null;
+  private vectorRepository: VectorRepository | null;
+  private graphRepository: GraphRepository | null;
   private embeddingUtil: EmbeddingUtil;
   private modelInitialized = false;
   private modelInitPromise: Promise<void> | null = null;
@@ -424,8 +220,8 @@ export class Summarizer extends BaseSummarizer {
   constructor(
     tokenPercentage: number = 80,
     analytics: ApiAnalytics | null = null,
-    vectorRepository: VectorRepositoryInterface | null = null,
-    graphRepository: GraphRepositoryInterface | null = null
+    vectorRepository: VectorRepository | null = null,
+    graphRepository: GraphRepository | null = null
   ) {
     super(tokenPercentage, analytics);
     this.vectorRepository = vectorRepository;
@@ -570,77 +366,6 @@ export class Summarizer extends BaseSummarizer {
         summary: `Conversation with ${messages.length} messages (summary generation failed).`,
         tokensUsed: 0,
       };
-    }
-  }
-
-  /**
-   * Generate a hierarchical summary from multiple summaries
-   * @param summaries Summaries to combine
-   * @param parentId Parent context ID
-   * @returns Generated hierarchical summary
-   */
-  protected async generateHierarchicalSummary(
-    summaries: ContextSummary[],
-    parentId: string
-  ): Promise<string> {
-    if (summaries.length === 0) {
-      return 'No contexts to summarize.';
-    }
-
-    try {
-      // Collect all summaries
-      const allSummaries = summaries.map((s) => s.summary).join('\n\n');
-
-      // Generate an extractive summary of all the summaries
-      const combinedSummary = this.extractiveSummarize(allSummaries, 10);
-
-      // Add metadata about the combined contexts
-      const totalMessages = summaries.reduce((sum, s) => sum + s.messageCount, 0);
-      const result = `Hierarchical summary of ${summaries.length} contexts containing a total of ${totalMessages} messages. ${combinedSummary}`;
-
-      return result;
-    } catch (error) {
-      console.error(`[Summarizer] Error generating hierarchical summary for ${parentId}:`, error);
-      return `Hierarchical summary of ${summaries.length} contexts (summary generation failed).`;
-    }
-  }
-
-  /**
-   * Generate a meta-summary from hierarchical summaries
-   * @param hierarchicalSummaries Hierarchical summaries to combine
-   * @param metaSummaryId Meta-summary ID
-   * @returns Generated meta-summary
-   */
-  protected async generateMetaSummary(
-    hierarchicalSummaries: HierarchicalSummary[],
-    metaSummaryId: string
-  ): Promise<string> {
-    if (hierarchicalSummaries.length === 0) {
-      return 'No hierarchical contexts to summarize.';
-    }
-
-    try {
-      // Collect all summaries
-      const allSummaries = hierarchicalSummaries.map((s) => s.summary).join('\n\n');
-
-      // Generate an extractive summary of all the hierarchical summaries
-      const combinedSummary = this.extractiveSummarize(allSummaries, 12);
-
-      // Get total message count
-      let totalMessages = 0;
-      let totalContexts = 0;
-
-      for (const hs of hierarchicalSummaries) {
-        totalMessages += hs.messageCount;
-        totalContexts += (hs.childContextIds?.length || 0) + 1; // +1 for the hierarchical summary itself
-      }
-
-      const result = `Meta-summary of ${hierarchicalSummaries.length} hierarchical contexts containing a total of ${totalContexts} contexts and ${totalMessages} messages. ${combinedSummary}`;
-
-      return result;
-    } catch (error) {
-      console.error(`[Summarizer] Error generating meta-summary for ${metaSummaryId}:`, error);
-      return `Meta-summary of ${hierarchicalSummaries.length} hierarchical contexts (summary generation failed).`;
     }
   }
 }

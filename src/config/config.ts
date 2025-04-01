@@ -34,8 +34,14 @@ export interface MCPConfig {
   trackApiCalls?: boolean;
   /** Number of days to retain API call data */
   apiAnalyticsRetention?: number;
+  /** Whether to enable HTTP server */
+  enableHttpServer?: boolean;
   /** Port for HTTP server */
+  httpPort?: number;
+  /** Legacy port for backward compatibility */
   port?: number;
+  /** API key for authentication */
+  apiKey?: string;
   /** Vector DB configuration */
   vectorDb?: VectorDbConfig;
   /** Summarizer configuration */
@@ -87,5 +93,8 @@ export const DEFAULT_CONFIG: Omit<Required<MCPConfig>, 'ignorePatterns'> &
   trackApiCalls: true,
   apiAnalyticsRetention: 30,
   fallbackToKeywordMatch: true,
+  enableHttpServer: false,
+  httpPort: 3000,
   port: 6789,
+  apiKey: '',
 };

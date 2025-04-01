@@ -7,13 +7,10 @@ import {
   ApiCallType,
 } from '../domain/types';
 import { RelatedContext } from '../types/related-context';
-import { ContextServiceInterface } from './context.interface';
-import {
-  Repository,
-  VectorRepositoryInterface,
-  GraphRepositoryInterface,
-} from '../repositories/repository.interface';
-import { SummarizerService } from './summarizer.interface';
+import { Summarizer } from './summarizer.service';
+import { FileSystemRepository } from '../repositories/file-system.repository';
+import { VectorRepository } from '../repositories/vector.repository';
+import { GraphRepository } from '../repositories/graph.repository';
 import { MCPConfig } from '../config/config';
 import { ApiAnalytics } from '../utils/analytics';
 
@@ -21,17 +18,17 @@ import { ApiAnalytics } from '../utils/analytics';
  * Repository dependencies for the Context Service
  */
 interface Repositories {
-  fs: Repository;
-  vector?: VectorRepositoryInterface | null;
-  graph?: GraphRepositoryInterface | null;
+  fs: FileSystemRepository;
+  vector?: VectorRepository | null;
+  graph?: GraphRepository | null;
 }
 
 /**
  * Service layer for handling core context management logic
  */
-export class ContextService implements ContextServiceInterface {
+export class ContextService {
   private repositories: Repositories;
-  private summarizer?: SummarizerService;
+  private summarizer?: Summarizer;
   private config: Omit<MCPConfig, 'ignorePatterns'>;
   private analytics: ApiAnalytics | null;
 
@@ -40,7 +37,7 @@ export class ContextService implements ContextServiceInterface {
    */
   constructor(
     repositories: Repositories,
-    summarizer: SummarizerService | undefined,
+    summarizer: Summarizer | undefined,
     config: Omit<MCPConfig, 'ignorePatterns'>,
     analytics: ApiAnalytics | null = null
   ) {
@@ -80,6 +77,71 @@ export class ContextService implements ContextServiceInterface {
         lastActivityAt: timestamp,
       };
       await this.repositories.fs.saveContextData(message.contextId, metadataToSave);
+
+      // Ensure we add to the vector database if it's enabled
+      if (this.repositories.vector) {
+        // Load the full context to get all messages
+        const fullContext = await this.repositories.fs.loadContext(message.contextId);
+        if (fullContext) {
+          // Combine all messages into a coherent text for vector embedding
+          let fullContextText = fullContext.messages
+            .map((msg) => `${msg.role}: ${msg.content}`)
+            .join('\n');
+
+          // When a summary is available and it's not a string, use its content
+          if (fullContext.summary && typeof fullContext.summary !== 'string') {
+            fullContextText += '\nSummary: \n';
+            fullContextText +=
+              fullContext.summary.summary +
+              '\n' +
+              (fullContext.summary.codeBlocks || [])
+                .map((block) => `Language: ${block.language || 'unknown'}\n${block.code}`)
+                .join('\n\n');
+          }
+
+          // Add or update the vector context
+          if (fullContext.summary && typeof fullContext.summary !== 'string' && fullContext.summary.summary) {
+            // If we have a summary, use both the full text and summary for better embedding
+            await this.repositories.vector.updateContext(
+              message.contextId,
+              fullContextText,
+              fullContext.summary.summary
+            );
+          } else {
+            // Otherwise just use the message text
+            await this.repositories.vector.addContext(
+              message.contextId,
+              fullContextText,
+              fullContextText.substring(0, 200) + '...' // Simple placeholder summary
+            );
+          }
+
+          // Find similar contexts for automatic relationship building
+          if (this.repositories.graph && this.config.useGraphDb) {
+            const similarContexts = await this.repositories.vector.findSimilarContexts(
+              fullContextText,
+              5
+            );
+
+            // Create relationships with similar contexts
+            for (const context of similarContexts) {
+              if (
+                context.contextId !== message.contextId &&
+                context.similarity &&
+                context.similarity > (this.config.similarityThreshold || 0.6)
+              ) {
+                // Create bidirectional relationships for better graph traversal
+                await this.repositories.graph.addRelationship(
+                  message.contextId,
+                  context.contextId,
+                  ContextRelationshipType.SIMILAR,
+                  context.similarity
+                );
+              }
+            }
+          }
+        }
+      }
 
       // Trigger background summarization if needed
       if (
@@ -122,120 +184,31 @@ export class ContextService implements ContextServiceInterface {
   }
 
   /**
-   * Add a relationship between contexts
-   */
-  async addRelationship(
-    sourceId: string,
-    targetId: string,
-    type: ContextRelationshipType
-  ): Promise<void> {
-    try {
-      if (this.analytics) {
-        this.analytics.trackCall(ApiCallType.GRAPH_DB_ADD);
-      }
-      await this.repositories.graph?.addRelationship(sourceId, targetId, type, 1);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to add relationship: ${errorMessage}`);
-    }
-  }
-
-  /**
-   * Delete a context
-   */
-  async deleteContext(contextId: string): Promise<void> {
-    if (this.analytics) {
-      this.analytics.trackCall(ApiCallType.VECTOR_DB_DELETE);
-    }
-    await this.repositories.vector?.deleteContext(contextId);
-    await this.repositories.graph?.removeContext(contextId);
-    await this.repositories.fs.deleteContext(contextId);
-  }
-
-  /**
-   * Load context metadata
-   */
-  async loadContextData(contextId: string): Promise<ContextMetadata | undefined> {
-    return await this.repositories.fs.loadContextData(contextId);
-  }
-
-  /**
-   * Save context metadata
-   */
-  async saveContextData(contextId: string, metadata: ContextMetadata): Promise<void> {
-    await this.repositories.fs.saveContextData(contextId, metadata);
-  }
-
-  /**
    * Load full context including metadata, messages, and summary
    */
-  async loadContext(contextId: string): Promise<ContextData | undefined> {
+  async getContext(contextId: string): Promise<ContextData | undefined> {
     return await this.repositories.fs.loadContext(contextId);
   }
 
   /**
-   * Get all context IDs
+   * Trigger background summarization process
    */
-  async getAllContextIds(): Promise<string[]> {
-    return await this.repositories.fs.getAllContextIds();
-  }
-
-  /**
-   * Get all hierarchical context IDs
-   */
-  async getAllHierarchicalContextIds(): Promise<string[]> {
-    return await this.repositories.fs.getAllHierarchicalContextIds();
-  }
-
-  /**
-   * Get all meta-summary IDs
-   */
-  async getAllMetaSummaryIds(): Promise<string[]> {
-    return await this.repositories.fs.getAllMetaSummaryIds();
-  }
-
-  /**
-   * Get related contexts
-   */
-  async getRelatedContexts(
-    contextId: string,
-    relationshipType?: ContextRelationshipType,
-    direction: 'incoming' | 'outgoing' | 'both' = 'both'
-  ): Promise<string[]> {
-    if (this.analytics) {
-      this.analytics.trackCall(ApiCallType.GRAPH_DB_SEARCH, {
-        contextId,
-        relationshipType,
-        direction,
-      });
-    }
-
-    if (!this.repositories.graph) {
-      return [];
+  private async triggerBackgroundSummarization(contextId: string): Promise<void> {
+    if (!this.summarizer) {
+      return;
     }
 
     try {
-      return await this.repositories.graph.getRelatedContexts(
-        contextId,
-        relationshipType,
-        direction
-      );
+      await this.triggerManualSummarization(contextId);
     } catch (error) {
-      return [];
+      // Ignore errors in background process
     }
-  }
-
-  /**
-   * Get context (alias for loadContext for backward compatibility)
-   */
-  async getContext(contextId: string): Promise<ContextData | undefined> {
-    return this.loadContext(contextId);
   }
 
   /**
    * Trigger manual summarization for a specific context
    */
-  async triggerManualSummarization(contextId: string): Promise<SummaryResult> {
+  private async triggerManualSummarization(contextId: string): Promise<SummaryResult> {
     if (!this.summarizer) {
       throw new Error('Summarizer not available');
     }
@@ -305,20 +278,5 @@ export class ContextService implements ContextServiceInterface {
     }
 
     return result;
-  }
-
-  /**
-   * Trigger background summarization process
-   */
-  private async triggerBackgroundSummarization(contextId: string): Promise<void> {
-    if (!this.summarizer) {
-      return;
-    }
-
-    try {
-      await this.triggerManualSummarization(contextId);
-    } catch (error) {
-      // Ignore errors in background process
-    }
   }
 }

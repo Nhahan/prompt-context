@@ -1,0 +1,24 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+- This project implements an MCP Server—a server that uses the standardized Model Context Protocol (MCP) to enable LLMs to communicate seamlessly with external data sources and tools.
+
+- If you lack understanding of the MCP Server and its implementation, refer to the `./mcp-reference/src` directory.
+
+- Always respond in 한국어, but by default, `README.md`, code comments and git commit messages should be written in English.
+
+- The basic `README.md` and code comments should be written in English.
+
+- Do not run npm deploy or git commit unless instructed to do so.
+
+- Avoid using `any` type unless absolutely necessary. Run `npm run lint` once after all changes, and fix any lint errors that appear.
+
+- Always check and remove unnecessary imports.
+
+- When modifying the `README.md`, always create an identical Korean version (`README_KOR.md`) separately.
+
+- When using the terminal, avoid entering pagination mode or interactive interface mode, as it will prevent further progress. Make sure to input commands in a way that bypasses such modes.
+
+- Do not use `jest` library for integration tests.
