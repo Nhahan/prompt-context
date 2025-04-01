@@ -61,9 +61,11 @@ export async function handleAddMessage(
   const { contextId, message, role, importance, tags } = args;
 
   try {
-    await contextService.addMessage(contextId, {
+    await contextService.addMessage({
+      contextId,
       role,
       content: message,
+      timestamp: Date.now(),
       importance: importance ? parseImportance(importance) : undefined,
       tags,
     });
@@ -141,7 +143,12 @@ export async function get_similar_contexts(
 ): Promise<Array<{ contextId: string; similarity: number }>> {
   try {
     const similarContexts = await contextService.findSimilarContexts(args.query, args.limit);
-    return similarContexts;
+
+    // Convert RelatedContext[] to { contextId: string; similarity: number }[]
+    return similarContexts.map((context) => ({
+      contextId: context.contextId,
+      similarity: context.similarity ?? 0,
+    }));
   } catch (error) {
     console.error(
       `[Tool Handler] Error in get_similar_contexts with query "${args.query}":`,
@@ -164,8 +171,7 @@ export async function handleAddRelationship(
     await contextService.addRelationship(
       args.sourceContextId,
       args.targetContextId,
-      args.relationshipType,
-      args.weight
+      args.relationshipType
     );
 
     return {
