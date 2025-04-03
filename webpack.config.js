@@ -9,7 +9,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'mcp-server.bundle.js',
-    clean: false,
+    clean: true,
   },
   resolve: {
     extensions: ['.ts', '.js'],
@@ -37,6 +37,7 @@ module.exports = {
     maxAssetSize: 512000,
   },
   // Bundle internal dependencies and exclude external ones
+  externalsPresets: { node: true }, // Treat node.js built-in modules as external
   externals: [
     nodeExternals({
       // Important: externalize packages with native modules
@@ -58,5 +59,14 @@ module.exports = {
       banner: '#!/usr/bin/env node',
       raw: true,
     }),
+    // Suppress emitting of declaration files
+    new webpack.DefinePlugin({
+      'process.env.SUPPRESS_TS_DECLARATIONS': JSON.stringify('true'),
+    }),
   ],
+  optimization: {
+    // Ensure we have a single output file
+    runtimeChunk: false,
+    splitChunks: false,
+  },
 };

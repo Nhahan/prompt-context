@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es2018",
+    "module": "commonjs",
+    "declaration": false,
+    "outDir": "dist/temp",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "lib": ["es2018", "dom"],
+    "typeRoots": ["./node_modules/@types"]
+  },
+  "include": ["src/main.ts"],
+  "exclude": ["node_modules", "dist", "mcp-reference", "**/__tests__/**"]
+} 
