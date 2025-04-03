@@ -130,6 +130,7 @@ async function addContext(
   const handler = addContextTool.getHandler(testServices.mcpServer);
 
   const params: AddContextParams = {
+    random_string: 'test-random-string',
     contextId,
     message,
     role,
@@ -160,6 +161,7 @@ async function getContext(contextId: string): Promise<Record<string, unknown>> {
   const handler = getContextTool.getHandler(testServices.mcpServer);
 
   const params: GetContextParams = {
+    random_string: 'test-random-string',
     contextId,
   };
 
@@ -197,6 +199,7 @@ async function searchSimilarContexts(
   const handler = getContextTool.getHandler(testServices.mcpServer);
 
   const params: GetContextParams = {
+    random_string: 'test-random-string',
     query,
     limit,
   };
