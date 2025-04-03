@@ -7,8 +7,29 @@ import { Message, ContextMetadata, ContextData, ContextSummary } from '../domain
  * @param segment Path segment to sanitize
  * @returns Sanitized path segment
  */
-function sanitizePathSegment(segment: string): string {
-  // Remove characters that are problematic in file paths
+function sanitizePathSegment(segment: string | undefined | null): string {
+  // 입력 검증: undefined나 null 처리
+  if (segment === undefined || segment === null) {
+    console.error('[WARNING] sanitizePathSegment received undefined or null value');
+    return 'undefined_segment';
+  }
+  
+  // 문자열이 아닌 경우 문자열로 변환
+  if (typeof segment !== 'string') {
+    console.error(`[WARNING] sanitizePathSegment received non-string value: ${typeof segment}`);
+    segment = String(segment);
+  }
+  
+  // 빈 문자열 처리
+  if (segment.trim().length === 0) {
+    console.error('[WARNING] sanitizePathSegment received empty string');
+    return 'empty_segment';
+  }
+  
+  // 경로 조작 방지 - 경로 구분자 및 상위 디렉토리 참조 제거
+  segment = segment.replace(/\.\./g, '_').replace(/[\/\\]/g, '_');
+  
+  // 파일 시스템에서 문제를 일으킬 수 있는 문자 제거
   return segment.replace(/[/:*?"<>|]/g, '_');
 }
 

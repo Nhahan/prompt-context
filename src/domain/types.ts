@@ -139,6 +139,7 @@ export interface AddContextParams {
   role: 'user' | 'assistant';
   importance?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   tags?: string[];
+  random_string: string;
 }
 
 /**
@@ -148,6 +149,7 @@ export interface GetContextParams {
   contextId?: string;
   query?: string;
   limit?: number;
+  random_string: string;
 }
 
 /**

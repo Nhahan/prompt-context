@@ -108,7 +108,7 @@ async function main() {
 
       // Handle termination signals
       process.on('SIGINT', async () => {
-        console.log('Termination signal received. Cleaning up resources...');
+        console.error('Termination signal received. Cleaning up resources...');
         if (services.vectorRepository) {
           await services.vectorRepository.close();
         }

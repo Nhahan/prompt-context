@@ -13,6 +13,7 @@ import { VectorRepository } from '../repositories/vector.repository';
 import { GraphRepository } from '../repositories/graph.repository';
 import { MCPConfig } from '../config/config';
 import { ApiAnalytics } from '../utils/analytics';
+import crypto from 'crypto';
 
 /**
  * Repository dependencies for the Context Service
@@ -51,6 +52,17 @@ export class ContextService {
    * Add a message to the specified context
    */
   async addMessage(message: Message): Promise<void> {
+    // 요청 ID 생성 (로깅 및 추적용)
+    const requestId = crypto.randomUUID();
+    
+    console.error(`[DEBUG] ContextService.addMessage [${requestId}] Starting: ${message.contextId}`);
+    
+    if (!message.contextId) {
+      const error = new Error("Context ID cannot be undefined or empty");
+      console.error(`[ERROR] ContextService.addMessage [${requestId}] Failed:`, error);
+      throw error;
+    }
+
     const timestamp = Date.now();
     const messageToAdd: Message = {
       ...message,
@@ -58,10 +70,12 @@ export class ContextService {
     };
 
     try {
+      console.error(`[DEBUG] ContextService.addMessage [${requestId}] Adding message to storage`);
       // Add message using repository
       await this.repositories.fs.addMessage(message.contextId, messageToAdd);
 
       // Update metadata
+      console.error(`[DEBUG] ContextService.addMessage [${requestId}] Updating metadata`);
       const currentData = await this.repositories.fs.loadContextData(message.contextId);
       const baseMetadata = currentData || {
         contextId: message.contextId,
@@ -80,70 +94,84 @@ export class ContextService {
 
       // Ensure we add to the vector database if it's enabled
       if (this.repositories.vector) {
-        // Load the full context to get all messages
-        const fullContext = await this.repositories.fs.loadContext(message.contextId);
-        if (fullContext) {
-          // Combine all messages into a coherent text for vector embedding
-          let fullContextText = fullContext.messages
-            .map((msg) => `${msg.role}: ${msg.content}`)
-            .join('\n');
+        console.error(`[DEBUG] ContextService.addMessage [${requestId}] Updating vector database`);
+        
+        try {
+          // Load the full context to get all messages
+          const fullContext = await this.repositories.fs.loadContext(message.contextId);
+          if (fullContext) {
+            // Combine all messages into a coherent text for vector embedding
+            let fullContextText = fullContext.messages
+              .map((msg) => `${msg.role}: ${msg.content}`)
+              .join('\n');
 
-          // When a summary is available and it's not a string, use its content
-          if (fullContext.summary && typeof fullContext.summary !== 'string') {
-            fullContextText += '\nSummary: \n';
-            fullContextText +=
-              fullContext.summary.summary +
-              '\n' +
-              (fullContext.summary.codeBlocks || [])
-                .map((block) => `Language: ${block.language || 'unknown'}\n${block.code}`)
-                .join('\n\n');
-          }
+            // When a summary is available and it's not a string, use its content
+            if (fullContext.summary && typeof fullContext.summary !== 'string') {
+              fullContextText += '\nSummary: \n';
+              fullContextText +=
+                fullContext.summary.summary +
+                '\n' +
+                (fullContext.summary.codeBlocks || [])
+                  .map((block) => `Language: ${block.language || 'unknown'}\n${block.code}`)
+                  .join('\n\n');
+            }
 
-          // Add or update the vector context
-          if (
-            fullContext.summary &&
-            typeof fullContext.summary !== 'string' &&
-            fullContext.summary.summary
-          ) {
-            // If we have a summary, use both the full text and summary for better embedding
-            await this.repositories.vector.updateContext(
-              message.contextId,
-              fullContextText,
+            // Add or update the vector context
+            if (
+              fullContext.summary &&
+              typeof fullContext.summary !== 'string' &&
               fullContext.summary.summary
-            );
-          } else {
-            // Otherwise just use the message text
-            await this.repositories.vector.addContext(
-              message.contextId,
-              fullContextText,
-              fullContextText.substring(0, 200) + '...' // Simple placeholder summary
-            );
-          }
+            ) {
+              // If we have a summary, use both the full text and summary for better embedding
+              await this.repositories.vector.updateContext(
+                message.contextId,
+                fullContextText,
+                fullContext.summary.summary
+              );
+            } else {
+              // Otherwise just use the message text
+              await this.repositories.vector.addContext(
+                message.contextId,
+                fullContextText,
+                fullContextText.substring(0, 200) + '...' // Simple placeholder summary
+              );
+            }
 
-          // Find similar contexts for automatic relationship building
-          if (this.repositories.graph && this.config.useGraphDb) {
-            const similarContexts = await this.repositories.vector.findSimilarContexts(
-              fullContextText,
-              5
-            );
-
-            // Create relationships with similar contexts
-            for (const context of similarContexts) {
-              if (
-                context.contextId !== message.contextId &&
-                context.similarity &&
-                context.similarity > (this.config.similarityThreshold || 0.6)
-              ) {
-                // Create bidirectional relationships for better graph traversal
-                await this.repositories.graph.addRelationship(
-                  message.contextId,
-                  context.contextId,
-                  ContextRelationshipType.SIMILAR,
-                  context.similarity
+            // Find similar contexts for automatic relationship building
+            if (this.repositories.graph && this.config.useGraphDb) {
+              console.error(`[DEBUG] ContextService.addMessage [${requestId}] Building context relationships`);
+              
+              try {
+                const similarContexts = await this.repositories.vector.findSimilarContexts(
+                  fullContextText,
+                  5
                 );
+
+                // Create relationships with similar contexts
+                for (const context of similarContexts) {
+                  if (
+                    context.contextId !== message.contextId &&
+                    context.similarity &&
+                    context.similarity > (this.config.similarityThreshold || 0.6)
+                  ) {
+                    // Create bidirectional relationships for better graph traversal
+                    await this.repositories.graph.addRelationship(
+                      message.contextId,
+                      context.contextId,
+                      ContextRelationshipType.SIMILAR,
+                      context.similarity
+                    );
+                  }
+                }
+              } catch (graphError) {
+                console.error(`[ERROR] ContextService.addMessage [${requestId}] Failed to build relationships:`, graphError);
+                // Continue execution even if relationship building fails
               }
             }
           }
+        } catch (vectorError) {
+          console.error(`[ERROR] ContextService.addMessage [${requestId}] Vector database update failed:`, vectorError);
+          // Continue execution even if vector update fails
         }
       }
 
@@ -153,12 +181,17 @@ export class ContextService {
         this.summarizer &&
         newMsgCount >= (this.config.messageLimitThreshold || 10)
       ) {
-        this.triggerBackgroundSummarization(message.contextId).catch(() => {
+        console.error(`[DEBUG] ContextService.addMessage [${requestId}] Triggering background summarization`);
+        this.triggerBackgroundSummarization(message.contextId).catch((summaryError) => {
+          console.error(`[ERROR] ContextService.addMessage [${requestId}] Background summarization failed:`, summaryError);
           // Ignore errors in background task
         });
       }
+      
+      console.error(`[DEBUG] ContextService.addMessage [${requestId}] Completed successfully`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[ERROR] ContextService.addMessage [${requestId}] Failed:`, error);
       throw new Error(`Failed to add message to ${message.contextId}: ${errorMessage}`);
     }
 
@@ -172,17 +205,27 @@ export class ContextService {
    * Find similar contexts based on text
    */
   public async findSimilarContexts(text: string, limit = 5): Promise<RelatedContext[]> {
+    // 요청 ID 생성 (로깅 및 추적용)
+    const requestId = crypto.randomUUID();
+    
+    console.error(`[DEBUG] ContextService.findSimilarContexts [${requestId}] Starting with query length: ${text.length}, limit: ${limit}`);
+    
     if (this.analytics) {
       this.analytics.trackCall(ApiCallType.VECTOR_DB_SEARCH, { query: text, limit });
     }
 
     if (!this.repositories.vector) {
+      console.error(`[DEBUG] ContextService.findSimilarContexts [${requestId}] Vector database not configured, returning empty array`);
       return [];
     }
 
     try {
-      return await this.repositories.vector.findSimilarContexts(text, limit);
+      console.error(`[DEBUG] ContextService.findSimilarContexts [${requestId}] Searching vector database`);
+      const results = await this.repositories.vector.findSimilarContexts(text, limit);
+      console.error(`[DEBUG] ContextService.findSimilarContexts [${requestId}] Found ${results.length} results`);
+      return results;
     } catch (error: unknown) {
+      console.error(`[ERROR] ContextService.findSimilarContexts [${requestId}] Failed:`, error);
       return [];
     }
   }
@@ -191,7 +234,30 @@ export class ContextService {
    * Load full context including metadata, messages, and summary
    */
   async getContext(contextId: string): Promise<ContextData | undefined> {
-    return await this.repositories.fs.loadContext(contextId);
+    // 요청 ID 생성 (로깅 및 추적용)
+    const requestId = crypto.randomUUID();
+    
+    if (!contextId) {
+      console.error(`[ERROR] ContextService.getContext [${requestId}] Invalid contextId: ${contextId}`);
+      return undefined;
+    }
+    
+    console.error(`[DEBUG] ContextService.getContext [${requestId}] Loading context: ${contextId}`);
+    
+    try {
+      const result = await this.repositories.fs.loadContext(contextId);
+      
+      if (!result) {
+        console.error(`[DEBUG] ContextService.getContext [${requestId}] Context not found: ${contextId}`);
+      } else {
+        console.error(`[DEBUG] ContextService.getContext [${requestId}] Context loaded with ${result.messages?.length || 0} messages`);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error(`[ERROR] ContextService.getContext [${requestId}] Failed to load context:`, error);
+      return undefined;
+    }
   }
 
   /**
